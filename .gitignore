@@ -31,6 +31,14 @@ htmlcov/
 # Claude Code local settings (machine-specific)
 .claude/settings.local.json
 
+# Cortex generated briefing (auto-generated per-project, not version controlled)
+.claude/rules/cortex-briefing.md
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
 # OS
 .DS_Store
 Thumbs.db
