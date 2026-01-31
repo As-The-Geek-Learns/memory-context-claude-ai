@@ -208,3 +208,34 @@ Phase 8: Integration Tests                          ░░░░░░░░░�
 ```
 
 **5 source modules built, 208 tests passing, 0 external dependencies.**
+
+---
+
+## Next Session Bootstrap Prompt
+
+Copy-paste this to start the next session with full context for Phase 4:
+
+```
+Read the project CLAUDE.md, then read these files to understand the project state:
+
+1. docs/sessions/SESSION-2026-01-31-tier0-phase1-2.md (Phases 1-2 context)
+2. docs/sessions/SESSION-2026-01-31-tier0-phase3.md (Phase 3 context, includes Phase 4 preview)
+3. src/memory_context_claude_ai/__init__.py (public API surface)
+
+Then start building Phase 4: Three-Layer Extraction (extractors.py).
+
+Phase 4 builds the event extraction pipeline that converts parsed
+TranscriptEntries into Cortex Events using three layers:
+- Layer 1 (Structural): Tool observation — Write→FILE_MODIFIED, Bash→COMMAND_RUN, TodoWrite→PLAN_CREATED
+- Layer 2 (Semantic): Keyword scanning — "Decision:", "Rejected:", "Fixed:" → event classification
+- Layer 3 (Explicit): [MEMORY:] tag extraction
+
+Key context:
+- 208 tests passing across 5 source modules
+- transcript.py provides: extract_tool_calls(), extract_text_content(), strip_code_blocks()
+- models.py provides: create_event(), EventType (11 types), content_hash() for dedup
+- store.py provides: EventStore.append() with built-in dedup
+- All test fixtures in tests/fixtures/ cover the extraction patterns needed
+```
+
+[ASTGL CONTENT] This bootstrap prompt is a hand-crafted version of exactly what Cortex will automate in Phase 6. The SessionStart hook will generate a `cortex-briefing.md` containing decisions, active plans, and recent context — eliminating the need to manually craft session continuity prompts.
