@@ -10,6 +10,7 @@ from memory_context_claude_ai.config import (
     get_project_dir,
     load_config,
     save_config,
+    _default_cortex_home,
 )
 
 
@@ -64,10 +65,11 @@ class TestCortexConfigSerialization:
         assert data["cortex_home"] == "/tmp/test"
         assert isinstance(data["cortex_home"], str)
 
-    def test_round_trip(self, tmp_path: Path) -> None:
-        """Serializing then deserializing preserves all values."""
+    def test_round_trip(self) -> None:
+        """Serializing then deserializing preserves all values (cortex_home under ~/.cortex)."""
+        valid_home = Path.home() / ".cortex" / "custom"
         original = CortexConfig(
-            cortex_home=tmp_path / ".cortex",
+            cortex_home=valid_home,
             decay_rate=0.99,
             confidence_threshold=0.6,
             reinforcement_multiplier=1.5,
@@ -103,6 +105,36 @@ class TestCortexConfigSerialization:
         config = CortexConfig.from_dict({"decay_rate": 0.99})
         assert config.decay_rate == 0.99
         assert config.confidence_threshold == 0.5  # default
+
+
+class TestCortexHomeValidation:
+    """Tests for cortex_home validation in from_dict (config file path must be under ~/.cortex)."""
+
+    def test_from_dict_accepts_default_cortex_home(self) -> None:
+        """from_dict accepts cortex_home equal to ~/.cortex."""
+        config = CortexConfig.from_dict({"cortex_home": str(Path.home() / ".cortex")})
+        assert config.cortex_home == _default_cortex_home()
+
+    def test_from_dict_accepts_subpath_under_cortex_home(self) -> None:
+        """from_dict accepts a subpath under ~/.cortex."""
+        valid_subpath = Path.home() / ".cortex" / "custom"
+        config = CortexConfig.from_dict({"cortex_home": str(valid_subpath)})
+        assert config.cortex_home == valid_subpath.resolve()
+
+    def test_from_dict_rejects_path_outside_cortex_home(self) -> None:
+        """from_dict rejects cortex_home outside ~/.cortex and uses default."""
+        config = CortexConfig.from_dict({"cortex_home": "/tmp/other"})
+        assert config.cortex_home == _default_cortex_home()
+
+    def test_from_dict_rejects_path_traversal(self) -> None:
+        """from_dict rejects path traversal (e.g. ../../etc) and uses default."""
+        config = CortexConfig.from_dict({"cortex_home": "../../etc"})
+        assert config.cortex_home == _default_cortex_home()
+
+    def test_from_dict_empty_string_uses_default(self) -> None:
+        """from_dict with empty cortex_home uses default."""
+        config = CortexConfig.from_dict({"cortex_home": ""})
+        assert config.cortex_home == _default_cortex_home()
 
 
 class TestGetCortexHome:

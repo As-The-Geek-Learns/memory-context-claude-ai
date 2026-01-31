@@ -15,6 +15,24 @@ def _default_cortex_home() -> Path:
     return Path.home() / ".cortex"
 
 
+def _validate_cortex_home(path_value: str | Path) -> Path:
+    """Validate cortex_home from config: must be under ~/.cortex.
+
+    Prevents path traversal or arbitrary directory use. If path_value
+    resolves outside Path.home() / '.cortex', returns the default.
+    """
+    if not path_value:
+        return _default_cortex_home()
+    try:
+        resolved = Path(path_value).resolve()
+        allowed_root = Path.home() / ".cortex"
+        if resolved.is_relative_to(allowed_root):
+            return resolved
+    except (OSError, RuntimeError):
+        pass
+    return _default_cortex_home()
+
+
 @dataclass
 class CortexConfig:
     """Configuration for the Cortex memory system.
@@ -52,7 +70,7 @@ class CortexConfig:
         """Deserialize from a dictionary, with defaults for missing keys."""
         defaults = cls()
         return cls(
-            cortex_home=Path(data.get("cortex_home", str(defaults.cortex_home))),
+            cortex_home=_validate_cortex_home(data.get("cortex_home", str(defaults.cortex_home))),
             decay_rate=data.get("decay_rate", defaults.decay_rate),
             confidence_threshold=data.get("confidence_threshold", defaults.confidence_threshold),
             reinforcement_multiplier=data.get("reinforcement_multiplier", defaults.reinforcement_multiplier),
