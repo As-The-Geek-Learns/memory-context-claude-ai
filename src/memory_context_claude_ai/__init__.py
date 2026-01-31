@@ -15,11 +15,19 @@ Public API:
     - extract_tool_calls, extract_tool_results: Tool extraction
     - strip_code_blocks: Code block removal for keyword matching
     - find_transcript_path, find_latest_transcript: Transcript discovery
+    - extract_events: Three-layer extraction pipeline
+    - extract_structural, extract_semantic, extract_explicit: Individual layers
 """
 
 __version__ = "0.1.0"
 
 from memory_context_claude_ai.config import CortexConfig, load_config, save_config
+from memory_context_claude_ai.extractors import (
+    extract_events,
+    extract_explicit,
+    extract_semantic,
+    extract_structural,
+)
 from memory_context_claude_ai.models import Event, EventType, create_event
 from memory_context_claude_ai.project import get_project_hash, identify_project
 from memory_context_claude_ai.store import EventStore, HookState
@@ -48,6 +56,10 @@ __all__ = [
     "TranscriptEntry",
     "TranscriptReader",
     "create_event",
+    "extract_events",
+    "extract_explicit",
+    "extract_semantic",
+    "extract_structural",
     "extract_text_content",
     "extract_thinking_content",
     "extract_tool_calls",
