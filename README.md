@@ -125,4 +125,4 @@ This research was conducted as part of the [As The Geek Learns](https://astgl.co
 
 ## License
 
-This project is currently unlicensed. A license will be added before the implementation phase begins.
+This project is licensed under the [MIT License](LICENSE).
