@@ -59,6 +59,30 @@ jobs:
         run: ruff format --check .
 
   # ===========================================================================
+  # Python Type Checking
+  # ===========================================================================
+  python-typecheck:
+    name: Python Type Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install mypy
+        run: pip install mypy
+
+      - name: Run mypy
+        run: mypy src/cortex --ignore-missing-imports
+
+  # ===========================================================================
   # Python Dependency Security
   # ===========================================================================
   python-security:

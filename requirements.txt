@@ -1,1 +1,10 @@
-# cortex dependencies
+# =============================================================================
+# Cortex Runtime Dependencies
+# =============================================================================
+# These are the packages needed to run cortex.
+# Currently cortex uses only Python standard library (no external deps).
+#
+# For development dependencies, see requirements-dev.txt
+# =============================================================================
+
+# No runtime dependencies - cortex uses only Python stdlib

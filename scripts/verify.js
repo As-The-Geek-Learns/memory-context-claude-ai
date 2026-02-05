@@ -6,18 +6,23 @@
  * Generates verification state including:
  * - SHA256 hashes of source files
  * - Test results
- * - Lint status
+ * - Lint status (ruff)
+ * - Type check (mypy)
+ * - Dependency audit (pip-audit)
+ * - Security scan (semgrep)
  * - AI code review (Gemini)
  * - Timestamp
- * 
+ *
  * Usage: node scripts/verify.js [options]
- * 
+ *
  * Options:
  *   --skip-tests       Skip running tests
  *   --skip-lint        Skip running linter
+ *   --skip-typecheck   Skip running mypy type checker
+ *   --skip-semgrep     Skip running Semgrep security scan
  *   --skip-ai-review   Skip AI code review
  *   --security-focus   Focus AI review on security only
- * 
+ *
  * Environment:
  *   GEMINI_API_KEY     Required for AI review (optional if --skip-ai-review)
  */
@@ -36,6 +41,8 @@ const args = process.argv.slice(2);
 const options = {
   skipTests: args.includes('--skip-tests'),
   skipLint: args.includes('--skip-lint'),
+  skipTypecheck: args.includes('--skip-typecheck'),
+  skipSemgrep: args.includes('--skip-semgrep'),
   skipAiReview: args.includes('--skip-ai-review'),
   securityFocus: args.includes('--security-focus'),
   outputPath: OUTPUT_PATH
@@ -158,13 +165,65 @@ function runLint() {
 
 function runAudit() {
   const result = runCommand('npm audit --audit-level=high 2>&1', 'Running security audit');
-  
+
   const output = result.output || '';
   const hasHighCritical = output.includes('high') || output.includes('critical');
-  
+
   return {
     success: !hasHighCritical || result.success,
     output: output.substring(0, 500)
+  };
+}
+
+function runTypecheck() {
+  if (options.skipTypecheck) {
+    console.log('Skipping type check (--skip-typecheck)');
+    return { skipped: true };
+  }
+
+  // Check if mypy is available
+  try {
+    execSync('which mypy', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+  } catch (e) {
+    console.log('mypy not installed, skipping type check');
+    console.log('Install with: pip install mypy');
+    return { skipped: true, reason: 'mypy not installed' };
+  }
+
+  // Check if src/cortex exists
+  if (!fs.existsSync('src/cortex')) {
+    console.log('No src/cortex directory found, skipping type check');
+    return { skipped: true, reason: 'no src/cortex directory' };
+  }
+
+  const result = runCommand('mypy src/cortex --ignore-missing-imports 2>&1', 'Running type check (mypy)');
+  return {
+    success: result.success,
+    output: result.output,
+    error: result.error
+  };
+}
+
+function runSemgrep() {
+  if (options.skipSemgrep) {
+    console.log('Skipping Semgrep (--skip-semgrep)');
+    return { skipped: true };
+  }
+
+  // Check if semgrep is available
+  try {
+    execSync('which semgrep', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+  } catch (e) {
+    console.log('semgrep not installed, skipping security scan');
+    console.log('Install with: pip install semgrep');
+    return { skipped: true, reason: 'semgrep not installed' };
+  }
+
+  const result = runCommand('semgrep scan --config=p/python --config=p/security-audit --config=p/secrets . --quiet 2>&1', 'Running Semgrep security scan');
+  return {
+    success: result.success,
+    output: result.output ? result.output.substring(0, 1000) : '',
+    error: result.error
   };
 }
 
@@ -265,12 +324,14 @@ async function main() {
   // Run checks
   const testResults = runTests();
   const lintResults = runLint();
+  const typecheckResults = runTypecheck();
   const auditResults = runAudit();
+  const semgrepResults = runSemgrep();
   const aiReviewResults = runAiReview();
-  
+
   // Build verification state
   const verifyState = {
-    version: '1.1.0',
+    version: '1.2.0',
     timestamp: new Date().toISOString(),
     files: {
       count: Object.keys(fileHashes).length,
@@ -278,17 +339,23 @@ async function main() {
     },
     tests: testResults,
     lint: lintResults,
+    typecheck: typecheckResults,
     audit: auditResults,
+    semgrep: semgrepResults,
     aiReview: aiReviewResults,
     summary: {
       filesHashed: Object.keys(fileHashes).length,
       testsPass: testResults.success || testResults.skipped,
       lintPass: lintResults.success || lintResults.skipped,
+      typecheckPass: typecheckResults.success || typecheckResults.skipped,
       auditPass: auditResults.success,
+      semgrepPass: semgrepResults.success || semgrepResults.skipped,
       aiReviewPass: aiReviewResults.success || aiReviewResults.skipped,
       overallPass: (testResults.success || testResults.skipped) &&
                    (lintResults.success || lintResults.skipped) &&
+                   (typecheckResults.success || typecheckResults.skipped) &&
                    auditResults.success &&
+                   (semgrepResults.success || semgrepResults.skipped) &&
                    (aiReviewResults.success || aiReviewResults.skipped)
     }
   };
@@ -312,7 +379,9 @@ async function main() {
   console.log('Files hashed:    ' + verifyState.summary.filesHashed);
   console.log('Tests:           ' + (verifyState.summary.testsPass ? 'PASS' : 'FAIL'));
   console.log('Lint:            ' + (verifyState.summary.lintPass ? 'PASS' : 'FAIL'));
-  console.log('Security Audit:  ' + (verifyState.summary.auditPass ? 'PASS' : 'FAIL'));
+  console.log('Type Check:      ' + (verifyState.summary.typecheckPass ? 'PASS' : 'FAIL'));
+  console.log('Dep Audit:       ' + (verifyState.summary.auditPass ? 'PASS' : 'FAIL'));
+  console.log('Semgrep:         ' + (verifyState.summary.semgrepPass ? 'PASS' : 'FAIL'));
   console.log('AI Review:       ' + (verifyState.summary.aiReviewPass ? 'PASS' : 'NEEDS ATTENTION'));
   
   if (aiReviewResults.securityRisk) {

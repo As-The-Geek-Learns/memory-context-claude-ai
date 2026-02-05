@@ -4,7 +4,10 @@
   "description": "Cortex: Event-sourced memory for Claude Code. Workflow scripts (verify, ship, ai-review) from Ironclad Development Workflow.",
   "scripts": {
     "test": "pytest tests/ -v",
+    "test:coverage": "pytest tests/ -v --cov=src/cortex --cov-report=term-missing --cov-fail-under=80",
     "lint": "ruff check . && ruff format --check .",
+    "typecheck": "mypy src/cortex --ignore-missing-imports",
+    "security:semgrep": "semgrep scan --config=p/python --config=p/security-audit --config=p/secrets .",
     "audit": "pip-audit --strict --vulnerability-service pypi",
     "workflow:verify": "node scripts/verify.js",
     "workflow:verify:no-ai": "node scripts/verify.js --skip-ai-review",
