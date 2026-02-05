@@ -187,13 +187,22 @@ All ${integrityResults.verified} files match their verified hashes.
 
   // Write PR body to temp file to avoid shell injection issues
   // (using --body-file instead of --body with escaped content)
-  const tempBodyFile = path.join(os.tmpdir(), "pr-body-" + Date.now() + ".md");
+  // Use mkdtempSync for secure temp directory creation (prevents race conditions)
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cortex-ship-"));
+  const tempBodyFile = path.join(tempDir, "pr-body.md");
   fs.writeFileSync(tempBodyFile, prBody, "utf-8");
 
   try {
+    // Escape backslashes first, then other shell-sensitive characters
+    const escapedTitle = prTitle
+      .replace(/\\/g, "\\\\")
+      .replace(/"/g, '\\"')
+      .replace(/\$/g, "\\$")
+      .replace(/`/g, "\\`");
+
     const createCmd =
       "gh pr create --title \"" +
-      prTitle.replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/`/g, '\\`') +
+      escapedTitle +
       "\" --body-file \"" +
       tempBodyFile +
       "\" --base " +
@@ -212,10 +221,11 @@ All ${integrityResults.verified} files match their verified hashes.
       return false;
     }
   } finally {
-    // Clean up temp file
+    // Clean up temp directory and file
     try {
       fs.unlinkSync(tempBodyFile);
-    } catch (e) {
+      fs.rmdirSync(tempDir);
+    } catch (_e) {
       // Ignore cleanup errors
     }
   }
