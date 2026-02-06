@@ -34,6 +34,9 @@ htmlcov/
 # Cortex generated briefing (auto-generated per-project, not version controlled)
 .claude/rules/cortex-briefing.md
 
+# Testing data (contains local file paths)
+docs/testing/baseline-data.json
+
 # Build artifacts
 *.egg-info/
 dist/
