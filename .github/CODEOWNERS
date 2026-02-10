@@ -1,0 +1,11 @@
+# Code ownership and review requirements
+# See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners for everything
+* @jamescruce
+
+# Security critical files require review
+/.github/workflows/ @jamescruce
+.gitleaks.toml @jamescruce
+SECURITY.md @jamescruce
+.pre-commit-config.yaml @jamescruce

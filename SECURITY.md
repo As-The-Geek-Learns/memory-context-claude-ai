@@ -98,6 +98,18 @@ Security updates are released as needed. We recommend:
 - We credit security researchers who responsibly disclose issues
 - Critical vulnerabilities may be disclosed immediately if already exploited
 
+## CI/CD Security Improvements (Feb 2026)
+
+### Semgrep Action Pinning
+- Semgrep v1 action pinned to commit SHA `713efdd345f3035192eaa63f56867b88e63e4e5d` for reproducibility
+- Prevents supply chain attacks via floating version tags
+- Ensures deterministic security scanning across all CI runs
+
+### Gitleaks Enforcement (CLI-based scanning)
+- Added `.gitleaks.toml` allowlist configuration to reduce false positives
+- Review `.gitleaks.toml` and customize allowlist rules for your repository
+- Note: This repo uses gitleaks CLI directly (not the GitHub Action)
+
 ## Contact
 
 For security concerns: [YOUR_EMAIL]
