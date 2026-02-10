@@ -1,17 +1,29 @@
-# Branch protection (manual setup)
+# Branch Protection Configuration
 
-Require the **Workflow Verify** status check to pass before merging into `main`. Configure in GitHub (not stored in the repo).
+Recommended GitHub branch protection settings for the `main` branch:
 
-## Steps
+## Required Settings
 
-1. Open the repo on GitHub.
-2. Go to **Settings → Branches** (or **Rules → Branch protection rules**).
-3. Under **Branch protection rules**, edit the existing rule for `main` or add a rule with **Branch name pattern** `main`.
-4. Enable **Require status checks to pass before merging**.
-5. In **Status checks that are required**, search for and select **Workflow Verify** (from [workflows/ci.yml](workflows/ci.yml)).  
-   The check appears after the workflow has run at least once (e.g. push to main or open a PR).
-6. Save the rule.
+### 1. Require Status Checks to Pass
+- ✅ Require branches to be up to date before merging
+- Required status checks (from CI):
+  - Semgrep (security-scan job)
+  - Gitleaks (secrets-scan job)
+  - Build/test jobs
 
-**Result:** PRs targeting `main` cannot be merged until the Workflow Verify job (and any other required checks) has succeeded.
+### 2. Require Code Reviews
+- ✅ Require at least 1 approving review
+- ✅ Dismiss stale reviews on new commits
+- ✅ Require review from code owners (CODEOWNERS)
 
-**Optional:** Enable **Require branches to be up to date before merging** so the latest push must pass CI.
+### 3. Require Conversation Resolution
+- ✅ Require all comments addressed
+
+### 4. Include Administrators
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------nality |
+
+## Related Documents
+
+- [CODEOWNERS](.github/CODEOWNERS) - Code owners
+- [CONTRIBUTING.md](.github/CONTRIBUTING.md) - Contributor guide
+- [SECURITY.md](../../SECURITY.md) - Security policy
