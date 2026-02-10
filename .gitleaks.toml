@@ -1,0 +1,20 @@
+# Minimal .gitleaks.toml allowlist configuration
+# Reduce false positives by allowlisting known non-secrets
+# See https://github.com/gitleaks/gitleaks/blob/master/docs/config.md
+
+[allowlist]
+  description = "Example placeholder tokens in documentation"
+  regexes = [
+    "EXAMPLE_TOKEN",
+    "PLACEHOLDER_SECRET",
+    "(?i)example[_-]?(token|secret|key|password)"
+  ]
+  paths = [
+    "(?i)example",
+    "(?i)fixture",
+    "(?i)mock"
+  ]
+
+# Add commit SHAs, file paths, or regexes to allowlist specific matches
+# commits = ["..."]
+# For more config options, see official Gitleaks documentation
