@@ -8,8 +8,8 @@ This directory contains templates and checklists for testing the Cortex Tier 0 i
 |-------|-------------|---------------|--------|
 | **Phase 1** | Setup & Verification | 15 minutes | ✅ Complete |
 | **Phase 2** | Manual Testing Scenarios | 30-60 minutes | Templates ready |
-| **Phase 3** | Baseline Data Collection | 5-10 sessions (~2-5 hours) | Templates ready |
-| **Phase 4** | A/B Comparison | 10 sessions (~5-10 hours) | Templates ready |
+| **Phase 3** | Baseline Data Collection | 5-10 sessions (~2-5 hours) | ✅ Complete (11 sessions) |
+| **Phase 4** | A/B Comparison | 5-10 sessions (~3-5 hours) | Ready to run |
 | **Phase 5** | Decay Parameter Calibration | 1-2 hours analysis | After 20+ sessions |
 
 ## Files
@@ -20,6 +20,9 @@ This directory contains templates and checklists for testing the Cortex Tier 0 i
 | [MANUAL-TESTING-TEMPLATE.md](MANUAL-TESTING-TEMPLATE.md) | Template for Phase 2 manual testing scenarios |
 | [BASELINE-DATA-TEMPLATE.md](BASELINE-DATA-TEMPLATE.md) | Template for Phase 3 baseline data collection (without Cortex) |
 | [AB-COMPARISON-TEMPLATE.md](AB-COMPARISON-TEMPLATE.md) | Template for Phase 4 A/B comparison (with Cortex) |
+| [PHASE3-BASELINE-GUIDE.md](PHASE3-BASELINE-GUIDE.md) | Step-by-step guide for Phase 3 baseline sessions |
+| [BASELINE-DATA-RESULTS.md](BASELINE-DATA-RESULTS.md) | Phase 3 baseline results (11 sessions) |
+| [PHASE4-COMPARISON-GUIDE.md](PHASE4-COMPARISON-GUIDE.md) | Step-by-step guide for Phase 4 comparison sessions |
 
 ## Quick Start
 
@@ -42,17 +45,18 @@ cp templates/cortex-memory-instructions.md YOUR_PROJECT/.claude/rules/
 
 Use [MANUAL-TESTING-TEMPLATE.md](MANUAL-TESTING-TEMPLATE.md) to verify single-session and multi-session behavior.
 
-### 4. Collect Baseline Data
+### 4. Collect Baseline Data (Phase 3)
 
 1. **Disable** Cortex hooks
-2. Use [BASELINE-DATA-TEMPLATE.md](BASELINE-DATA-TEMPLATE.md) to record 5-10 sessions
-3. Note cold start time, decision regression, and re-exploration counts
+2. Follow [PHASE3-BASELINE-GUIDE.md](PHASE3-BASELINE-GUIDE.md) for step-by-step instructions
+3. Use automation: `python -m scripts.testing.run_phase3 record`
 
-### 5. Run A/B Comparison
+### 5. Run A/B Comparison (Phase 4)
 
-1. **Re-enable** Cortex hooks
-2. Use [AB-COMPARISON-TEMPLATE.md](AB-COMPARISON-TEMPLATE.md) to record 10 sessions
-3. Compare metrics against baseline
+1. **Re-enable** Cortex hooks (`cortex init` for hook JSON)
+2. Follow [PHASE4-COMPARISON-GUIDE.md](PHASE4-COMPARISON-GUIDE.md) for step-by-step instructions
+3. Use automation: `python -m scripts.testing.run_phase4 record`
+4. Generate report: `python -m scripts.testing.run_phase4 report`
 
 ## Success Criteria
 

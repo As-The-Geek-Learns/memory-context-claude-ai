@@ -60,13 +60,14 @@ Each baseline session should involve **real development work** — the same kind
 
 ## Step 3: Run the Session
 
-1. **Start Claude Code normally** in your project directory
-2. **Do your work** — fix bugs, write code, whatever the task is
-3. **Pay attention to these moments** (you'll be asked about them after):
+1. **Start Claude Code normally** in whatever project you're working on — it does **not** have to be the cortex project (see FAQ)
+2. **Note which project directory you're in** — you'll need the path in Step 4
+3. **Do your work** — fix bugs, write code, whatever the task is
+4. **Pay attention to these moments** (you'll be asked about them after):
    - How long before Claude does something useful (not just reading files)?
    - Did Claude re-debate any decisions you've already made in past sessions?
    - Did Claude seem to "know" anything from your previous sessions, or was it starting completely fresh?
-4. **End the session normally** (exit Claude Code)
+5. **End the session normally** (exit Claude Code)
 
 ---
 
@@ -76,11 +77,18 @@ Immediately after ending the session (while it's fresh in your mind), run:
 
 ```bash
 cd /Users/jamescruce/Projects/cortex
+
+# If you worked in the cortex project:
 python -m scripts.testing.run_phase3 record
+
+# If you worked in a different project:
+python -m scripts.testing.run_phase3 record --project /Users/jamescruce/Projects/substack-scheduler
 ```
 
+> **Important:** The `record` command auto-discovers transcripts by project directory. Without `--project`, it looks for transcripts from the cortex project. If you ran your session in a different project (e.g. UpdateKit), you **must** use `--project` or you'll get a "No Claude Code transcript directory found" error.
+
 **What happens automatically:**
-- Finds the most recent Claude Code transcript
+- Finds the most recent Claude Code transcript for the specified project
 - Extracts **cold start time** (minutes until first file edit or command)
 - Extracts **re-exploration count** (files read that were also read in prior sessions)
 - Shows you session stats (duration, tool calls, files explored/modified)
