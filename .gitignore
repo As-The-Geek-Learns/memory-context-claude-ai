@@ -36,6 +36,7 @@ htmlcov/
 
 # Testing data (contains local file paths)
 docs/testing/baseline-data.json
+docs/testing/comparison-data.json
 
 # Build artifacts
 *.egg-info/
@@ -52,3 +53,6 @@ node_modules/
 # OS
 .DS_Store
 Thumbs.db
+
+# Qodo Gen local overrides (personal preferences, not team-shared)
+.codiumai.local.toml
