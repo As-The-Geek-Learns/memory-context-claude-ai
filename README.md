@@ -34,12 +34,12 @@ Cortex is an **event-sourced memory system** with three key subsystems:
 
 **Progressive Tiers** enable incremental adoption:
 
-| Tier | Install Time | What You Get |
-|------|-------------|-------------|
-| **Tier 0** | 30 seconds | Single Python script, stdlib only, JSON storage, basic briefing |
-| **Tier 1** | 2 minutes | SQLite + FTS5, salience scoring, temporal decay |
-| **Tier 2** | 5 minutes | Vector embeddings, hybrid search, anticipatory retrieval |
-| **Tier 3** | 10 minutes | MCP server, branch alignment, git-tracked projections |
+| Tier | Install Time | What You Get | Status |
+|------|-------------|-------------|--------|
+| **Tier 0** | 30 seconds | JSON storage, three-layer extraction, basic briefing | Implemented |
+| **Tier 1** | 2 minutes | SQLite + FTS5, snapshot caching, migration CLI | Implemented |
+| **Tier 2** | 5 minutes | Vector embeddings, hybrid search, anticipatory retrieval | Planned |
+| **Tier 3** | 10 minutes | MCP server, branch alignment, git-tracked projections | Planned |
 
 ## Research Methodology
 
@@ -84,6 +84,47 @@ All intermediate work products are preserved for transparency:
 | [External Evaluation](docs/research/evaluation/external-evaluation.md) | Independent stress-test of the plan |
 | [Evaluation Response](docs/research/evaluation/evaluation-response.md) | Point-by-point response to all gaps |
 
+## Tier 1 Features
+
+Tier 1 upgrades storage from JSON to SQLite with full-text search:
+
+### SQLite Storage
+- **WAL mode** for concurrent reads during writes
+- **100K+ event capacity** with batch insertion
+- **Content-hash deduplication** prevents duplicate events
+
+### FTS5 Full-Text Search
+- **BM25 ranking** for relevance-scored results
+- **Type and branch filtering** for targeted queries
+- **Snippet generation** with match highlighting
+
+```python
+from cortex import search, search_decisions
+
+# Search all events
+results = search(conn, "authentication", limit=10)
+
+# Search only decisions
+decisions = search_decisions(conn, "database")
+```
+
+### Snapshot Caching
+- **Sub-10ms briefing retrieval** from cache
+- **Branch-specific snapshots** for context isolation
+- **Auto-invalidation** when new events are appended
+
+### Migration CLI
+
+Upgrade from Tier 0 (JSON) to Tier 1 (SQLite):
+
+```bash
+cortex upgrade           # Migrate to SQLite
+cortex upgrade --dry-run # Preview what would be done
+cortex upgrade --force   # Overwrite existing SQLite
+```
+
+Migration creates a timestamped backup and archives JSON files after successful migration.
+
 ## Key Design Decisions
 
 1. **Event sourcing as foundation** — Separates capture from delivery; audit trail is permanent
@@ -96,9 +137,14 @@ All intermediate work products are preserved for transparency:
 
 ## Project Status
 
-**Research: COMPLETE** | **Implementation: NOT YET STARTED**
+**Research: COMPLETE** | **Tier 0: COMPLETE** | **Tier 1: COMPLETE**
 
-Next step: Implement Tier 0 prototype, starting with baseline data collection (see [evaluation plan](docs/research/paper/cortex-research-paper.md#114-evaluation--measurement-plan)).
+- **516 tests** passing with full coverage of core functionality
+- **A/B comparison testing** completed (see [results](docs/testing/AB-COMPARISON-RESULTS.md))
+- Cold start time reduced by **84%** (9.0 min → 1.4 min)
+- Decision regression reduced by **80%** (0.5 → 0.1 per session)
+
+Next step: Tier 2 implementation (vector embeddings, hybrid search).
 
 ## Development Setup
 
@@ -152,7 +198,26 @@ Ensure the `cortex` entry point is on your PATH (e.g. `pip install -e .` in this
 
 **First-time setup:** Install the package (`pip install -e .` or `pip install cortex`), then run `cortex init` and add the printed JSON to your Claude Code hooks configuration (see [Claude Code hooks documentation](https://code.claude.com/docs/en/hooks-guide)). For Layer 3 extraction, copy `templates/cortex-memory-instructions.md` to your project’s `.claude/rules/` so Claude knows to use `[MEMORY: ...]` for important facts.
 
-**CLI commands:** `cortex reset` clears all Cortex memory for the current project (event store + hook state). `cortex status` prints project hash, event count, and last extraction time. `cortex --help` (or no args) prints usage.
+**CLI commands:**
+
+| Command | Description |
+|---------|-------------|
+| `cortex status` | Show project hash, event count, storage tier, database size (Tier 1) |
+| `cortex reset` | Clear all Cortex memory for the current project |
+| `cortex upgrade` | Migrate from Tier 0 (JSON) to Tier 1 (SQLite) |
+| `cortex upgrade --dry-run` | Preview migration without making changes |
+| `cortex init` | Print hook configuration JSON for Claude Code settings |
+
+Example `cortex status` output (Tier 1):
+```
+project: /Users/dev/my-project
+hash: a1b2c3d4e5f6
+storage_tier: 1 (SQLite)
+events: 42
+last_extraction: 2026-02-14T21:00:00Z
+db_size: 156.3 KB
+fts5_available: yes
+```
 
 For hook configuration details, see the [Claude Code hooks documentation](https://code.claude.com/docs/en/hooks-guide).
 
