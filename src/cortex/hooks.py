@@ -1,8 +1,10 @@
-"""Claude Code hook handlers for Cortex Tier 0.
+"""Claude Code hook handlers for Cortex.
 
 Stop, PreCompact, and SessionStart handlers read JSON payloads from stdin,
 perform incremental transcript extraction and briefing generation, and always
 exit 0 so Claude Code never blocks on hook failure.
+
+Uses create_event_store() factory for tier-aware storage (JSON or SQLite).
 """
 
 import json
@@ -14,7 +16,7 @@ from cortex.briefing import write_briefing_to_file
 from cortex.config import load_config
 from cortex.extractors import extract_events
 from cortex.project import identify_project
-from cortex.store import EventStore, HookState
+from cortex.store import HookState, create_event_store
 from cortex.transcript import (
     TranscriptReader,
     find_latest_transcript,
@@ -63,7 +65,7 @@ def handle_stop(payload: dict) -> int:
             return 0
 
         config = load_config()
-        store = EventStore(project_hash, config)
+        store = create_event_store(project_hash, config)
         state = HookState(project_hash, config)
         state_data = state.load()
 
@@ -130,7 +132,7 @@ def handle_precompact(payload: dict) -> int:
         transcript_dir = find_transcript_path(cwd)
         transcript_path = find_latest_transcript(transcript_dir) if transcript_dir else None
         if transcript_path:
-            store = EventStore(project_hash, config)
+            store = create_event_store(project_hash, config)
             state = HookState(project_hash, config)
             state_data = state.load()
             last_path = state_data.get("last_transcript_path", "")
