@@ -245,8 +245,12 @@ class EmbeddingEngine:
             e1 = np.array(embedding1)
             e2 = np.array(embedding2)
 
-            # Cosine similarity for normalized vectors is just dot product
-            return float(np.dot(e1, e2))
+            # Normalize vectors for proper cosine similarity
+            norm1 = np.linalg.norm(e1)
+            norm2 = np.linalg.norm(e2)
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
+            return float(np.dot(e1, e2) / (norm1 * norm2))
         except Exception as e:
             logger.error(f"Similarity calculation failed: {e}")
             return 0.0

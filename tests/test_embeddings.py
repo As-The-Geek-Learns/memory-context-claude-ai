@@ -75,18 +75,16 @@ class TestCheckSentenceTransformersAvailable:
         result = check_sentence_transformers_available()
         assert result is True
 
+    @pytest.mark.skip(reason="Cannot reliably isolate import state without affecting other tests")
     def test_returns_false_when_not_installed(self):
-        """Should return False when sentence-transformers is not installed."""
-        with patch.dict("sys.modules", {"sentence_transformers": None}):
-            # Force reimport to pick up mocked module
-            import importlib
+        """Should return False when sentence-transformers is not installed.
 
-            import cortex.embeddings
-
-            importlib.reload(cortex.embeddings)
-            # After reload, check should fail due to None module
-            # Actually this approach doesn't work well - skip this test
-            pass
+        Note: This test is skipped because reliably simulating missing
+        sentence-transformers requires process isolation, which pytest
+        doesn't easily support. The actual logic is validated through
+        the graceful degradation tests that mock is_available().
+        """
+        pass
 
 
 # --- Test EmbeddingEngine initialization ---
