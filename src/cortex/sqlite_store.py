@@ -4,12 +4,15 @@ Provides SQLiteEventStore implementing EventStoreBase with:
 - Persistent SQLite storage via db.py
 - Content-hash deduplication
 - Salience-ranked queries with decay
-- FTS5-ready schema (search in Phase 3)
+- FTS5 full-text search with BM25 ranking
 """
+
+from __future__ import annotations
 
 import json
 import sqlite3
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from cortex.config import CortexConfig
 from cortex.db import connect, get_db_path, initialize_schema
@@ -20,6 +23,9 @@ from cortex.models import (
     effective_salience,
 )
 from cortex.store import EventStoreBase
+
+if TYPE_CHECKING:
+    from cortex.search import SearchResult
 
 
 class SQLiteEventStore(EventStoreBase):
@@ -292,3 +298,108 @@ class SQLiteEventStore(EventStoreBase):
         conn = self._get_conn()
         cursor = conn.execute("SELECT COUNT(*) FROM events")
         return cursor.fetchone()[0]
+
+    # --- FTS5 Search Methods ---
+
+    def search(
+        self,
+        query: str,
+        limit: int = 20,
+        event_type: EventType | None = None,
+        branch: str | None = None,
+    ) -> list["SearchResult"]:
+        """Search events using FTS5 full-text search with BM25 ranking.
+
+        Args:
+            query: Search query (supports FTS5 syntax: AND, OR, NOT, "phrase").
+            limit: Maximum results to return (default 20).
+            event_type: Optional filter by event type.
+            branch: Optional filter by git branch.
+
+        Returns:
+            List of SearchResult objects sorted by relevance (highest first).
+        """
+        from cortex.search import search
+
+        return search(self._get_conn(), query, limit, event_type, branch)
+
+    def search_by_type(
+        self,
+        query: str,
+        event_type: EventType,
+        limit: int = 20,
+    ) -> list["SearchResult"]:
+        """Search events filtered by type.
+
+        Args:
+            query: Search query.
+            event_type: Filter to this event type only.
+            limit: Maximum results to return.
+
+        Returns:
+            List of SearchResult objects sorted by relevance.
+        """
+        from cortex.search import search_by_type
+
+        return search_by_type(self._get_conn(), query, event_type, limit)
+
+    def search_decisions(self, query: str, limit: int = 20) -> list["SearchResult"]:
+        """Search only decision events.
+
+        Useful for finding past architectural decisions.
+
+        Args:
+            query: Search query.
+            limit: Maximum results to return.
+
+        Returns:
+            List of SearchResult objects for DECISION_MADE events.
+        """
+        from cortex.search import search_decisions
+
+        return search_decisions(self._get_conn(), query, limit)
+
+    def search_knowledge(self, query: str, limit: int = 20) -> list["SearchResult"]:
+        """Search only knowledge events.
+
+        Useful for finding learned facts and discoveries.
+
+        Args:
+            query: Search query.
+            limit: Maximum results to return.
+
+        Returns:
+            List of SearchResult objects for KNOWLEDGE_ACQUIRED events.
+        """
+        from cortex.search import search_knowledge
+
+        return search_knowledge(self._get_conn(), query, limit)
+
+    def get_similar_events(self, event: Event, limit: int = 5) -> list["SearchResult"]:
+        """Find events similar to the given event.
+
+        Extracts key terms from the event's content and searches for
+        related events. Excludes the source event from results.
+
+        Args:
+            event: Source event to find similar events for.
+            limit: Maximum results to return.
+
+        Returns:
+            List of SearchResult objects for similar events.
+        """
+        from cortex.search import get_similar_events
+
+        return get_similar_events(self._get_conn(), event, limit)
+
+    def rebuild_search_index(self) -> int:
+        """Rebuild the FTS5 search index from scratch.
+
+        Use this if the index gets out of sync with the events table.
+
+        Returns:
+            Number of events indexed.
+        """
+        from cortex.search import rebuild_fts_index
+
+        return rebuild_fts_index(self._get_conn())
