@@ -22,6 +22,7 @@ Public API:
     - generate_briefing, write_briefing_to_file: Briefing generation
     - read_payload, handle_stop, handle_precompact, handle_session_start: Hook handlers
     - cmd_reset, cmd_status, cmd_init, get_init_hook_json: CLI commands
+    - SearchResult, search, search_by_type: FTS5 full-text search
 """
 
 __version__ = "0.1.0"
@@ -43,6 +44,15 @@ from cortex.hooks import (
 )
 from cortex.models import Event, EventType, create_event
 from cortex.project import get_project_hash, identify_project
+from cortex.search import (
+    SearchResult,
+    get_similar_events,
+    rebuild_fts_index,
+    search,
+    search_by_type,
+    search_decisions,
+    search_knowledge,
+)
 from cortex.sqlite_store import SQLiteEventStore
 from cortex.store import EventStore, EventStoreBase, HookState, create_event_store
 from cortex.transcript import (
@@ -67,6 +77,7 @@ __all__ = [
     "EventType",
     "HookState",
     "SQLiteEventStore",
+    "SearchResult",
     "create_event_store",
     "ToolCall",
     "ToolResult",
@@ -89,13 +100,19 @@ __all__ = [
     "generate_briefing",
     "get_init_hook_json",
     "get_project_hash",
+    "get_similar_events",
     "handle_precompact",
     "handle_session_start",
     "handle_stop",
     "identify_project",
     "load_config",
     "read_payload",
+    "rebuild_fts_index",
     "save_config",
+    "search",
+    "search_by_type",
+    "search_decisions",
+    "search_knowledge",
     "strip_code_blocks",
     "write_briefing_to_file",
 ]
