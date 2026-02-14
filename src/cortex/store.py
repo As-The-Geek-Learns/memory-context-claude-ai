@@ -1,13 +1,16 @@
-"""JSON-backed event store for Cortex Tier 0.
+"""Event storage backends for Cortex.
 
-Provides append-only event storage in a JSON file per project.
-Supports querying by type, recency, immortality, and briefing needs.
-Uses atomic writes (temp file + rename) for crash safety.
+Provides:
+- EventStoreBase: Abstract interface for event storage
+- EventStore: JSON-backed implementation (Tier 0)
+- create_event_store(): Factory for tier-aware store instantiation
 
-Storage location: ~/.cortex/projects/<hash>/events.json
+Storage location: ~/.cortex/projects/<hash>/events.json (Tier 0)
+                  ~/.cortex/projects/<hash>/events.db (Tier 1+)
 """
 
 import json
+from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,7 +23,72 @@ from cortex.models import (
 )
 
 
-class EventStore:
+class EventStoreBase(ABC):
+    """Abstract base class for event storage backends.
+
+    Defines the interface that all storage implementations must provide.
+    This enables transparent switching between JSON (Tier 0) and
+    SQLite (Tier 1+) backends.
+    """
+
+    @abstractmethod
+    def append(self, event: Event) -> None:
+        """Append a single event to the store."""
+        ...
+
+    @abstractmethod
+    def append_many(self, events: list[Event]) -> None:
+        """Append multiple events with deduplication."""
+        ...
+
+    @abstractmethod
+    def load_all(self) -> list[Event]:
+        """Load all events from the store."""
+        ...
+
+    @abstractmethod
+    def load_recent(self, n: int = 50) -> list[Event]:
+        """Load the N most recent events by created_at."""
+        ...
+
+    @abstractmethod
+    def load_by_type(self, event_type: EventType) -> list[Event]:
+        """Load all events of a specific type."""
+        ...
+
+    @abstractmethod
+    def load_immortal(self) -> list[Event]:
+        """Load all immortal events (decisions and rejections)."""
+        ...
+
+    @abstractmethod
+    def load_for_briefing(self, branch: str | None = None) -> dict:
+        """Load events structured for briefing generation.
+
+        Returns a dict with three keys:
+        - "immortal": Immortal events sorted by created_at
+        - "active_plan": Most recent PLAN_CREATED + its completed steps
+        - "recent": Top N events by effective salience
+        """
+        ...
+
+    @abstractmethod
+    def mark_accessed(self, event_ids: list[str]) -> None:
+        """Update accessed_at and access_count for reinforcement."""
+        ...
+
+    @abstractmethod
+    def clear(self) -> None:
+        """Remove all events from the store."""
+        ...
+
+    @abstractmethod
+    def count(self) -> int:
+        """Return the number of events in the store."""
+        ...
+
+
+class EventStore(EventStoreBase):
     """JSON-file-backed event store for a single project.
 
     Events are stored as a JSON array in events.json. The entire file
@@ -276,3 +344,29 @@ class HookState:
         state = self.load()
         state.update(kwargs)
         self.save(state)
+
+
+def create_event_store(project_hash: str, config: CortexConfig | None = None) -> EventStoreBase:
+    """Factory function to create the appropriate event store.
+
+    Returns a JSON-backed EventStore for Tier 0, or a SQLite-backed
+    SQLiteEventStore for Tier 1+. The storage tier is determined
+    by config.storage_tier.
+
+    Args:
+        project_hash: 16-character hex hash identifying the project.
+        config: Optional config override. Uses default if not provided.
+
+    Returns:
+        EventStoreBase implementation appropriate for the storage tier.
+    """
+    cfg = config or CortexConfig()
+
+    if cfg.storage_tier >= 1:
+        # Tier 1+: SQLite backend
+        from cortex.sqlite_store import SQLiteEventStore
+
+        return SQLiteEventStore(project_hash, cfg)
+
+    # Tier 0: JSON backend (default)
+    return EventStore(project_hash, cfg)
