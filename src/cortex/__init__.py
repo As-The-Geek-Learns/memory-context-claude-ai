@@ -24,6 +24,7 @@ Public API:
     - cmd_reset, cmd_status, cmd_init, get_init_hook_json: CLI commands
     - SearchResult, search, search_by_type: FTS5 full-text search
     - Snapshot, save_snapshot, get_valid_snapshot: Briefing snapshot caching
+    - MigrationResult, upgrade, detect_tier, get_migration_status, rollback: Tier migration
 """
 
 __version__ = "0.1.0"
@@ -42,6 +43,13 @@ from cortex.hooks import (
     handle_session_start,
     handle_stop,
     read_payload,
+)
+from cortex.migration import (
+    MigrationResult,
+    detect_tier,
+    get_migration_status,
+    rollback,
+    upgrade,
 )
 from cortex.models import Event, EventType, create_event
 from cortex.project import get_project_hash, identify_project
@@ -85,11 +93,16 @@ __all__ = [
     "EventStoreBase",
     "EventType",
     "HookState",
+    "MigrationResult",
     "SQLiteEventStore",
     "SearchResult",
     "Snapshot",
     "cleanup_expired_snapshots",
     "create_event_store",
+    "detect_tier",
+    "get_migration_status",
+    "rollback",
+    "upgrade",
     "ToolCall",
     "ToolResult",
     "TranscriptEntry",
