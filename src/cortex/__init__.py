@@ -1,8 +1,8 @@
 """Cortex: Event-sourced memory for Claude Code.
 
 Provides persistent cross-session memory by capturing events from Claude Code
-hooks (Stop, SessionStart, PreCompact) and generating context briefings that
-are automatically loaded at session start.
+hooks (Stop, SessionStart, PreCompact, UserPromptSubmit) and generating context
+briefings that are automatically loaded at session start.
 
 Public API:
     - Event, EventType, create_event: Core event model
@@ -21,6 +21,7 @@ Public API:
     - extract_structural, extract_semantic, extract_explicit: Individual layers
     - generate_briefing, write_briefing_to_file: Briefing generation
     - read_payload, handle_stop, handle_precompact, handle_session_start: Hook handlers
+    - handle_user_prompt_submit: Anticipatory retrieval hook (Tier 2+)
     - cmd_reset, cmd_status, cmd_init, get_init_hook_json: CLI commands
     - SearchResult, search, search_by_type: FTS5 full-text search
     - Snapshot, save_snapshot, get_valid_snapshot: Briefing snapshot caching
@@ -28,10 +29,16 @@ Public API:
     - EmbeddingEngine, embed, embed_batch: Vector embedding generation (Tier 2)
     - VectorSearchResult, search_similar, backfill_embeddings: Vector search (Tier 2)
     - HybridResult, hybrid_search, search_semantic: Hybrid FTS + vector search (Tier 2)
+    - RetrievalResult, retrieve_relevant_context: Anticipatory retrieval (Tier 2+)
 """
 
 __version__ = "0.1.0"
 
+from cortex.anticipate import (
+    RetrievalResult,
+    retrieve_relevant_context,
+    write_relevant_context_to_file,
+)
 from cortex.briefing import generate_briefing, write_briefing_to_file
 from cortex.cli import cmd_init, cmd_reset, cmd_status, get_init_hook_json
 from cortex.config import CortexConfig, load_config, save_config
@@ -53,6 +60,7 @@ from cortex.hooks import (
     handle_precompact,
     handle_session_start,
     handle_stop,
+    handle_user_prompt_submit,
     read_payload,
 )
 from cortex.hybrid_search import (
@@ -163,11 +171,14 @@ __all__ = [
     "handle_precompact",
     "handle_session_start",
     "handle_stop",
+    "handle_user_prompt_submit",
     "identify_project",
     "invalidate_snapshots",
     "load_config",
     "read_payload",
     "rebuild_fts_index",
+    "retrieve_relevant_context",
+    "RetrievalResult",
     "save_config",
     "save_snapshot",
     "search",
@@ -184,4 +195,5 @@ __all__ = [
     "hybrid_search",
     "search_semantic",
     "search_similar",
+    "write_relevant_context_to_file",
 ]

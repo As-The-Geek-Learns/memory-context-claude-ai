@@ -82,8 +82,8 @@ def cmd_status(cwd: str | None = None) -> int:
         print(f"events: {count}")
         print(f"last_extraction: {last_extraction}")
 
-        # Show database size and FTS status for Tier 1
-        if migration_status["current_tier"] == 1:
+        # Show database size and FTS status for Tier 1+
+        if migration_status["current_tier"] >= 1:
             db_path = get_db_path(project_hash, config)
             if db_path.exists():
                 size_bytes = db_path.stat().st_size
@@ -95,6 +95,15 @@ def cmd_status(cwd: str | None = None) -> int:
                     size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
                 print(f"db_size: {size_str}")
             print(f"fts5_available: {'yes' if check_fts5_available() else 'no'}")
+
+        # Show Tier 2 status (embedding count, auto_embed)
+        if config.storage_tier >= 2:
+            from cortex.sqlite_store import SQLiteEventStore
+
+            if isinstance(store, SQLiteEventStore):
+                embedding_count = store.count_embeddings()
+                print(f"embeddings: {embedding_count}/{count}")
+                print(f"auto_embed: {'yes' if config.auto_embed else 'no'}")
 
         # Show upgrade hint if on Tier 0
         if migration_status["can_upgrade"]:
@@ -168,24 +177,43 @@ def cmd_upgrade(cwd: str | None = None, dry_run: bool = False, force: bool = Fal
         return 1
 
 
-def get_init_hook_json() -> str:
+def get_init_hook_json(include_tier2: bool = False) -> str:
     """Return the hook configuration JSON for Claude Code settings.
 
     Format matches Claude Code expectations: hooks key with Stop, PreCompact,
     SessionStart entries. Commands use 'cortex' so they work when the package
     is installed (cortex on PATH).
+
+    Args:
+        include_tier2: If True, include UserPromptSubmit hook for anticipatory
+                       retrieval (requires Tier 2+).
     """
-    config = {
-        "hooks": {
-            "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "cortex stop"}]}],
-            "PreCompact": [{"matcher": "", "hooks": [{"type": "command", "command": "cortex precompact"}]}],
-            "SessionStart": [{"matcher": "", "hooks": [{"type": "command", "command": "cortex session-start"}]}],
-        }
+    hooks: dict = {
+        "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "cortex stop"}]}],
+        "PreCompact": [{"matcher": "", "hooks": [{"type": "command", "command": "cortex precompact"}]}],
+        "SessionStart": [{"matcher": "", "hooks": [{"type": "command", "command": "cortex session-start"}]}],
     }
-    return json.dumps(config, indent=2)
+
+    if include_tier2:
+        hooks["UserPromptSubmit"] = [
+            {"matcher": "", "hooks": [{"type": "command", "command": "cortex user-prompt-submit"}]}
+        ]
+
+    return json.dumps({"hooks": hooks}, indent=2)
 
 
 def cmd_init() -> int:
-    """Print hook configuration JSON to stdout for copy-paste into Claude Code settings."""
-    print(get_init_hook_json())
+    """Print hook configuration JSON to stdout for copy-paste into Claude Code settings.
+
+    If current project is Tier 2+, includes UserPromptSubmit hook for anticipatory retrieval.
+    """
+    config = load_config()
+    include_tier2 = config.storage_tier >= 2
+    print(get_init_hook_json(include_tier2=include_tier2))
+
+    if include_tier2:
+        print("\n# Tier 2+ detected: UserPromptSubmit hook included for anticipatory retrieval", file=sys.stderr)
+    else:
+        print("\n# Tip: Upgrade to Tier 2 and re-run 'cortex init' for anticipatory retrieval", file=sys.stderr)
+
     return 0
