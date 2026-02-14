@@ -63,11 +63,27 @@ class SQLiteEventStore(EventStoreBase):
             self._conn.close()
             self._conn = None
 
+    def _invalidate_snapshots(self, branch: str) -> None:
+        """Invalidate cached snapshots for the given branch.
+
+        Called automatically when events are appended.
+
+        Args:
+            branch: Git branch whose snapshots should be invalidated.
+        """
+        from cortex.snapshot import invalidate_snapshots
+
+        conn = self._get_conn()
+        invalidate_snapshots(conn, branch if branch else None)
+
     def append(self, event: Event) -> None:
         """Append a single event to the store."""
         conn = self._get_conn()
         self._insert_event(conn, event)
         conn.commit()
+        # WHAT: Invalidate cached snapshots when new events are added.
+        # WHY: Snapshots are stale once the event set changes.
+        self._invalidate_snapshots(event.git_branch)
 
     def append_many(self, events: list[Event]) -> None:
         """Append multiple events with deduplication.
@@ -96,6 +112,13 @@ class SQLiteEventStore(EventStoreBase):
             self._insert_event(conn, event)
 
         conn.commit()
+
+        # WHAT: Invalidate cached snapshots for affected branches.
+        # WHY: Snapshots are stale once the event set changes.
+        if new_events:
+            branches = {e.git_branch for e in new_events}
+            for branch in branches:
+                self._invalidate_snapshots(branch)
 
     def _insert_event(self, conn, event: Event) -> None:
         """Insert a single event into the database."""

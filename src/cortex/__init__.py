@@ -23,6 +23,7 @@ Public API:
     - read_payload, handle_stop, handle_precompact, handle_session_start: Hook handlers
     - cmd_reset, cmd_status, cmd_init, get_init_hook_json: CLI commands
     - SearchResult, search, search_by_type: FTS5 full-text search
+    - Snapshot, save_snapshot, get_valid_snapshot: Briefing snapshot caching
 """
 
 __version__ = "0.1.0"
@@ -53,6 +54,14 @@ from cortex.search import (
     search_decisions,
     search_knowledge,
 )
+from cortex.snapshot import (
+    Snapshot,
+    cleanup_expired_snapshots,
+    get_snapshot_stats,
+    get_valid_snapshot,
+    invalidate_snapshots,
+    save_snapshot,
+)
 from cortex.sqlite_store import SQLiteEventStore
 from cortex.store import EventStore, EventStoreBase, HookState, create_event_store
 from cortex.transcript import (
@@ -78,6 +87,8 @@ __all__ = [
     "HookState",
     "SQLiteEventStore",
     "SearchResult",
+    "Snapshot",
+    "cleanup_expired_snapshots",
     "create_event_store",
     "ToolCall",
     "ToolResult",
@@ -101,14 +112,18 @@ __all__ = [
     "get_init_hook_json",
     "get_project_hash",
     "get_similar_events",
+    "get_snapshot_stats",
+    "get_valid_snapshot",
     "handle_precompact",
     "handle_session_start",
     "handle_stop",
     "identify_project",
+    "invalidate_snapshots",
     "load_config",
     "read_payload",
     "rebuild_fts_index",
     "save_config",
+    "save_snapshot",
     "search",
     "search_by_type",
     "search_decisions",
