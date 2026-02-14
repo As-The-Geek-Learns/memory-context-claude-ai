@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -20,16 +19,6 @@ logger = logging.getLogger(__name__)
 # Default model: small, fast, good quality
 DEFAULT_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 EMBEDDING_DIMENSION = 384
-
-
-@dataclass
-class EmbeddingConfig:
-    """Configuration for embedding generation."""
-
-    model_name: str = DEFAULT_MODEL_NAME
-    cache_dir: str | None = None
-    device: str = "cpu"
-    normalize: bool = True
 
 
 def check_sentence_transformers_available() -> bool:
@@ -135,7 +124,16 @@ class EmbeddingEngine:
 
     @property
     def dimension(self) -> int:
-        """Return embedding dimension (384 for all-MiniLM-L6-v2)."""
+        """Return embedding dimension.
+
+        Attempts to read from loaded model, falls back to EMBEDDING_DIMENSION constant.
+        """
+        if self._model is not None:
+            try:
+                # SentenceTransformer stores dimension in get_sentence_embedding_dimension()
+                return self._model.get_sentence_embedding_dimension()
+            except (AttributeError, TypeError):
+                pass
         return EMBEDDING_DIMENSION
 
     @property
@@ -256,26 +254,35 @@ class EmbeddingEngine:
             return 0.0
 
 
-# Module-level singleton for convenience
-_default_engine: EmbeddingEngine | None = None
+# Module-level cache for embedding engines (keyed by model_name, cache_dir)
+_engines: dict[tuple[str, str | None], EmbeddingEngine] = {}
 
 
 def get_embedding_engine(
     model_name: str = DEFAULT_MODEL_NAME,
     cache_dir: str | Path | None = None,
 ) -> EmbeddingEngine:
-    """Get or create the default embedding engine.
+    """Get or create an embedding engine for the given configuration.
 
-    Uses a singleton pattern to avoid loading the model multiple times.
+    Engines are cached per (model_name, cache_dir) key to avoid loading
+    the same model multiple times.
+
+    Args:
+        model_name: HuggingFace model name/path.
+        cache_dir: Directory to cache model files.
+
+    Returns:
+        EmbeddingEngine instance for the given configuration.
     """
-    global _default_engine
+    # Normalize cache_dir to string for consistent caching
+    cache_key = (model_name, str(cache_dir) if cache_dir else None)
 
-    if _default_engine is None:
-        _default_engine = EmbeddingEngine(
+    if cache_key not in _engines:
+        _engines[cache_key] = EmbeddingEngine(
             model_name=model_name,
             cache_dir=cache_dir,
         )
-    return _default_engine
+    return _engines[cache_key]
 
 
 def embed(text: str) -> list[float] | None:

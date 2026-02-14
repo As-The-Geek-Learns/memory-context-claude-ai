@@ -335,44 +335,56 @@ class TestModuleFunctions:
     """Tests for module-level convenience functions."""
 
     def test_get_embedding_engine_singleton(self):
-        """get_embedding_engine should return singleton."""
+        """get_embedding_engine should return cached instance for same params."""
         import cortex.embeddings
 
-        # Reset singleton
-        cortex.embeddings._default_engine = None
+        # Clear cache
+        cortex.embeddings._engines.clear()
 
         engine1 = get_embedding_engine()
         engine2 = get_embedding_engine()
         assert engine1 is engine2
 
+        # Different params should return different instance
+        engine3 = get_embedding_engine(model_name="different-model")
+        assert engine3 is not engine1
+
+        # Reset
+        cortex.embeddings._engines.clear()
+
     def test_embed_function(self, mock_sentence_transformer):
         """embed function should use default engine."""
         import cortex.embeddings
 
-        # Set up mock engine
+        # Clear cache and set up mock engine
+        cortex.embeddings._engines.clear()
         mock_engine = MagicMock()
         mock_engine.embed.return_value = [0.0] * 384
-        cortex.embeddings._default_engine = mock_engine
+        cache_key = (DEFAULT_MODEL_NAME, None)
+        cortex.embeddings._engines[cache_key] = mock_engine
 
         embed("Test")
         mock_engine.embed.assert_called_once_with("Test")
 
         # Reset
-        cortex.embeddings._default_engine = None
+        cortex.embeddings._engines.clear()
 
     def test_embed_batch_function(self, mock_sentence_transformer):
         """embed_batch function should use default engine."""
         import cortex.embeddings
 
+        # Clear cache and set up mock engine
+        cortex.embeddings._engines.clear()
         mock_engine = MagicMock()
         mock_engine.embed_batch.return_value = [[0.0] * 384, [0.0] * 384]
-        cortex.embeddings._default_engine = mock_engine
+        cache_key = (DEFAULT_MODEL_NAME, None)
+        cortex.embeddings._engines[cache_key] = mock_engine
 
         embed_batch(["A", "B"])
         mock_engine.embed_batch.assert_called_once()
 
         # Reset
-        cortex.embeddings._default_engine = None
+        cortex.embeddings._engines.clear()
 
 
 # --- Test constants ---
