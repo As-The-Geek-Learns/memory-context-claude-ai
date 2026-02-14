@@ -7,7 +7,9 @@ are automatically loaded at session start.
 Public API:
     - Event, EventType, create_event: Core event model
     - CortexConfig, load_config, save_config: Configuration
-    - EventStore, HookState: Storage
+    - EventStoreBase, EventStore, SQLiteEventStore: Storage backends
+    - create_event_store: Factory for tier-aware store instantiation
+    - HookState: Hook execution state
     - identify_project, get_project_hash: Project identity
     - TranscriptEntry, TranscriptReader: Transcript parsing
     - ToolCall, ToolResult: Tool interaction models
@@ -41,7 +43,8 @@ from cortex.hooks import (
 )
 from cortex.models import Event, EventType, create_event
 from cortex.project import get_project_hash, identify_project
-from cortex.store import EventStore, HookState
+from cortex.sqlite_store import SQLiteEventStore
+from cortex.store import EventStore, EventStoreBase, HookState, create_event_store
 from cortex.transcript import (
     ToolCall,
     ToolResult,
@@ -60,8 +63,11 @@ __all__ = [
     "CortexConfig",
     "Event",
     "EventStore",
+    "EventStoreBase",
     "EventType",
     "HookState",
+    "SQLiteEventStore",
+    "create_event_store",
     "ToolCall",
     "ToolResult",
     "TranscriptEntry",

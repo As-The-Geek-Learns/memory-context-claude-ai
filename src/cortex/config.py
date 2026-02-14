@@ -59,6 +59,9 @@ class CortexConfig:
     decision_active_sessions: int = 20
     decision_aging_sessions: int = 50
 
+    # Storage tier (0 = JSON, 1 = SQLite + FTS5)
+    storage_tier: int = 0
+
     def to_dict(self) -> dict:
         """Serialize to a JSON-compatible dictionary."""
         data = asdict(self)
@@ -79,6 +82,7 @@ class CortexConfig:
             max_summary_decisions=data.get("max_summary_decisions", defaults.max_summary_decisions),
             decision_active_sessions=data.get("decision_active_sessions", defaults.decision_active_sessions),
             decision_aging_sessions=data.get("decision_aging_sessions", defaults.decision_aging_sessions),
+            storage_tier=data.get("storage_tier", defaults.storage_tier),
         )
 
 
