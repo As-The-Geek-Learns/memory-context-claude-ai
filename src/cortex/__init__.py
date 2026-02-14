@@ -26,6 +26,7 @@ Public API:
     - Snapshot, save_snapshot, get_valid_snapshot: Briefing snapshot caching
     - MigrationResult, upgrade, detect_tier, get_migration_status, rollback: Tier migration
     - EmbeddingEngine, embed, embed_batch: Vector embedding generation (Tier 2)
+    - VectorSearchResult, search_similar, backfill_embeddings: Vector search (Tier 2)
 """
 
 __version__ = "0.1.0"
@@ -94,6 +95,14 @@ from cortex.transcript import (
     find_transcript_path,
     strip_code_blocks,
 )
+from cortex.vec import (
+    VectorSearchResult,
+    backfill_embeddings,
+    count_embeddings,
+    get_embedding,
+    search_similar,
+    store_embedding,
+)
 
 __all__ = [
     "CortexConfig",
@@ -156,6 +165,12 @@ __all__ = [
     "search_by_type",
     "search_decisions",
     "search_knowledge",
+    "store_embedding",
     "strip_code_blocks",
     "write_briefing_to_file",
+    "VectorSearchResult",
+    "backfill_embeddings",
+    "count_embeddings",
+    "get_embedding",
+    "search_similar",
 ]
