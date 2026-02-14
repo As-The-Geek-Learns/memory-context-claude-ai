@@ -4,6 +4,7 @@ Provides BM25-ranked keyword search over event content with:
 - Optional type and branch filters
 - Snippet generation with match highlighting
 - Relevance scoring
+- Hybrid search combining FTS5 + vector similarity (Tier 2)
 
 Requires SQLite with FTS5 support (Python 3.11+ typically includes this).
 """
