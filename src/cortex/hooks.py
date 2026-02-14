@@ -1,10 +1,12 @@
 """Claude Code hook handlers for Cortex.
 
-Stop, PreCompact, and SessionStart handlers read JSON payloads from stdin,
-perform incremental transcript extraction and briefing generation, and always
-exit 0 so Claude Code never blocks on hook failure.
+Stop, PreCompact, SessionStart, and UserPromptSubmit handlers read JSON
+payloads from stdin, perform incremental transcript extraction, briefing
+generation, and anticipatory retrieval. Always exit 0 so Claude Code
+never blocks on hook failure.
 
 Uses create_event_store() factory for tier-aware storage (JSON or SQLite).
+Tier 2+ enables anticipatory retrieval via UserPromptSubmit hook.
 """
 
 import json
@@ -194,4 +196,50 @@ def handle_session_start(payload: dict) -> int:
         return 0
     except Exception as e:
         print(f"[Cortex] SessionStart hook error: {e}", file=sys.stderr)
+        return 0
+
+
+def handle_user_prompt_submit(payload: dict) -> int:
+    """Handle UserPromptSubmit hook: anticipatory retrieval for Tier 2+.
+
+    Embeds the user's prompt and performs hybrid search to find relevant
+    events. Writes results to .claude/rules/cortex-relevant-context.md
+    so Claude has proactive context before processing the message.
+
+    Requires Tier 2+ (storage_tier >= 2) and sentence-transformers.
+    Silently skips if requirements not met (graceful degradation).
+
+    On exception logs to stderr and returns 0.
+    """
+    try:
+        cwd = payload.get("cwd")
+        prompt = payload.get("prompt", "")
+
+        if not cwd or not prompt:
+            return 0
+
+        # WHAT: Import here to avoid circular imports at module load.
+        # WHY: anticipate module imports from store which imports config.
+        from cortex.anticipate import write_relevant_context_to_file
+
+        identity = identify_project(cwd)
+        git_branch = identity.get("git_branch") or None
+        config = load_config()
+
+        # WHAT: Skip if not Tier 2+.
+        # WHY: Anticipatory retrieval requires embeddings.
+        if config.storage_tier < 2:
+            return 0
+
+        context_path = Path(cwd) / ".claude" / "rules" / "cortex-relevant-context.md"
+        write_relevant_context_to_file(
+            output_path=context_path,
+            prompt=prompt,
+            project_path=cwd,
+            config=config,
+            branch=git_branch,
+        )
+        return 0
+    except Exception as e:
+        print(f"[Cortex] UserPromptSubmit hook error: {e}", file=sys.stderr)
         return 0
