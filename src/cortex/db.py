@@ -1,10 +1,12 @@
-"""SQLite database management for Cortex Tier 1.
+"""SQLite database management for Cortex.
 
 Provides connection management, schema creation, and migrations for the
 SQLite-backed event store. Uses WAL mode for concurrent reads during writes
 (important for hooks that may overlap).
 
-Schema version is tracked for future migrations (Tier 2, Tier 3).
+Schema version is tracked for migrations:
+- Version 1: Tier 1 (events, FTS5, snapshots, hook_state)
+- Version 2: Tier 2 (adds embedding column for vector search)
 """
 
 import sqlite3
@@ -13,8 +15,8 @@ from pathlib import Path
 from cortex.config import CortexConfig, get_project_dir
 
 # WHAT: Current schema version for migration tracking.
-# WHY: Enables safe schema upgrades in future tiers.
-SCHEMA_VERSION = 1
+# WHY: Enables safe schema upgrades between tiers.
+SCHEMA_VERSION = 2
 
 
 def get_db_path(project_hash: str, config: CortexConfig | None = None) -> Path:
@@ -87,7 +89,8 @@ def initialize_schema(conn: sqlite3.Connection) -> None:
             accessed_at TEXT NOT NULL,
             access_count INTEGER NOT NULL DEFAULT 0,
             immortal INTEGER NOT NULL DEFAULT 0,
-            provenance TEXT NOT NULL DEFAULT ''
+            provenance TEXT NOT NULL DEFAULT '',
+            embedding BLOB DEFAULT NULL
         );
 
         -- Indexes for common query patterns
@@ -132,6 +135,9 @@ def initialize_schema(conn: sqlite3.Connection) -> None:
 
     # Initialize FTS5 if not exists
     _initialize_fts5(conn)
+
+    # Run schema migrations
+    _run_migrations(conn)
 
     # Record schema version if not already present
     _record_schema_version(conn)
@@ -183,6 +189,46 @@ def _initialize_fts5(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _run_migrations(conn: sqlite3.Connection) -> None:
+    """Run schema migrations to bring database up to current version.
+
+    Migrations are idempotent and safe to run multiple times.
+
+    Args:
+        conn: SQLite connection.
+    """
+    current_version = get_schema_version(conn)
+
+    # Migration 1 -> 2: Add embedding column for Tier 2
+    if current_version < 2:
+        _migrate_v1_to_v2(conn)
+
+
+def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
+    """Migrate from schema v1 to v2: add embedding column.
+
+    Args:
+        conn: SQLite connection.
+    """
+    from datetime import datetime, timezone
+
+    # Check if embedding column already exists
+    cursor = conn.execute("PRAGMA table_info(events)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if "embedding" in columns:
+        return
+
+    # Add embedding column
+    conn.execute("ALTER TABLE events ADD COLUMN embedding BLOB DEFAULT NULL")
+
+    # Record migration
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT OR REPLACE INTO schema_version (version, applied_at, description) VALUES (?, ?, ?)",
+        (2, now, "Tier 2: Added embedding column for vector search"),
+    )
+
+
 def _record_schema_version(conn: sqlite3.Connection) -> None:
     """Record the current schema version if not already present.
 
@@ -201,7 +247,7 @@ def _record_schema_version(conn: sqlite3.Connection) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         "INSERT INTO schema_version (version, applied_at, description) VALUES (?, ?, ?)",
-        (SCHEMA_VERSION, now, "Initial Tier 1 schema: events, FTS5, snapshots, hook_state"),
+        (SCHEMA_VERSION, now, "Tier 2 schema: events, FTS5, snapshots, hook_state, embedding"),
     )
 
 
@@ -241,6 +287,57 @@ def check_fts5_available() -> bool:
         return False
 
 
+def check_vec_available() -> bool:
+    """Check if sqlite-vec extension is available.
+
+    sqlite-vec provides vector similarity search for embeddings.
+
+    Returns:
+        True if sqlite-vec is available, False otherwise.
+    """
+    conn = None
+    try:
+        import sqlite_vec
+
+        conn = sqlite3.connect(":memory:")
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        return True
+    except (ImportError, sqlite3.OperationalError, AttributeError):
+        return False
+    finally:
+        if conn is not None:
+            try:
+                conn.enable_load_extension(False)
+            except (sqlite3.OperationalError, AttributeError):
+                pass
+            conn.close()
+
+
+def load_vec_extension(conn: sqlite3.Connection) -> bool:
+    """Load sqlite-vec extension into a connection.
+
+    Args:
+        conn: SQLite connection.
+
+    Returns:
+        True if loaded successfully, False otherwise.
+    """
+    try:
+        import sqlite_vec
+
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        return True
+    except (ImportError, sqlite3.OperationalError, AttributeError):
+        return False
+    finally:
+        try:
+            conn.enable_load_extension(False)
+        except (sqlite3.OperationalError, AttributeError):
+            pass
+
+
 def vacuum_database(conn: sqlite3.Connection) -> None:
     """Reclaim space and optimize the database.
 
@@ -262,7 +359,7 @@ def get_database_stats(conn: sqlite3.Connection) -> dict:
         conn: SQLite connection.
 
     Returns:
-        Dict with event_count, db_size_bytes, schema_version, fts_enabled.
+        Dict with event_count, schema_version, fts_enabled, embedding stats.
     """
     stats = {}
 
@@ -280,5 +377,12 @@ def get_database_stats(conn: sqlite3.Connection) -> dict:
     # Snapshot count
     cursor = conn.execute("SELECT COUNT(*) FROM snapshots")
     stats["snapshot_count"] = cursor.fetchone()[0]
+
+    # Embedding stats (Tier 2)
+    cursor = conn.execute("SELECT COUNT(*) FROM events WHERE embedding IS NOT NULL")
+    stats["events_with_embeddings"] = cursor.fetchone()[0]
+
+    # Vec extension availability
+    stats["vec_available"] = check_vec_available()
 
     return stats
