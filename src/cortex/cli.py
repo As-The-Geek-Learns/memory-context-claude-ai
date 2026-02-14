@@ -10,6 +10,7 @@ import os
 import sys
 
 from cortex.config import load_config
+from cortex.db import check_fts5_available, get_db_path
 from cortex.migration import get_migration_status, upgrade
 from cortex.project import identify_project
 from cortex.store import EventStore, HookState, create_event_store
@@ -80,6 +81,20 @@ def cmd_status(cwd: str | None = None) -> int:
         )
         print(f"events: {count}")
         print(f"last_extraction: {last_extraction}")
+
+        # Show database size and FTS status for Tier 1
+        if migration_status["current_tier"] == 1:
+            db_path = get_db_path(project_hash, config)
+            if db_path.exists():
+                size_bytes = db_path.stat().st_size
+                if size_bytes < 1024:
+                    size_str = f"{size_bytes} B"
+                elif size_bytes < 1024 * 1024:
+                    size_str = f"{size_bytes / 1024:.1f} KB"
+                else:
+                    size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+                print(f"db_size: {size_str}")
+            print(f"fts5_available: {'yes' if check_fts5_available() else 'no'}")
 
         # Show upgrade hint if on Tier 0
         if migration_status["can_upgrade"]:
