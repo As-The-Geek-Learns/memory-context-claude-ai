@@ -88,7 +88,7 @@ cd /Users/jamescruce/Projects/cortex
 python -m scripts.testing.run_phase4 record
 
 # If you worked in a different project:
-python -m scripts.testing.run_phase4 record --project /Users/jamescruce/Projects/substack-scheduler
+python -m scripts.testing.run_phase4 record --project /Users/jamescruce/Projects/jdex-premium
 ```
 
 > **Important:** Use `--project` if you ran your session in a project other than cortex, just like Phase 3.
