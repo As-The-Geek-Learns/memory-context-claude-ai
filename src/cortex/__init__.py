@@ -27,6 +27,7 @@ Public API:
     - MigrationResult, upgrade, detect_tier, get_migration_status, rollback: Tier migration
     - EmbeddingEngine, embed, embed_batch: Vector embedding generation (Tier 2)
     - VectorSearchResult, search_similar, backfill_embeddings: Vector search (Tier 2)
+    - HybridResult, hybrid_search, search_semantic: Hybrid FTS + vector search (Tier 2)
 """
 
 __version__ = "0.1.0"
@@ -53,6 +54,12 @@ from cortex.hooks import (
     handle_session_start,
     handle_stop,
     read_payload,
+)
+from cortex.hybrid_search import (
+    DEFAULT_RRF_K,
+    HybridResult,
+    hybrid_search,
+    search_semantic,
 )
 from cortex.migration import (
     MigrationResult,
@@ -106,6 +113,7 @@ from cortex.vec import (
 
 __all__ = [
     "CortexConfig",
+    "DEFAULT_RRF_K",
     "EMBEDDING_DIMENSION",
     "EmbeddingEngine",
     "Event",
@@ -113,6 +121,7 @@ __all__ = [
     "EventStoreBase",
     "EventType",
     "HookState",
+    "HybridResult",
     "MigrationResult",
     "SQLiteEventStore",
     "SearchResult",
@@ -172,5 +181,7 @@ __all__ = [
     "backfill_embeddings",
     "count_embeddings",
     "get_embedding",
+    "hybrid_search",
+    "search_semantic",
     "search_similar",
 ]
