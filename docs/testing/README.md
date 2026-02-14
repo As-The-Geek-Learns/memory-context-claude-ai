@@ -9,7 +9,7 @@ This directory contains templates and checklists for testing the Cortex Tier 0 i
 | **Phase 1** | Setup & Verification | 15 minutes | ✅ Complete |
 | **Phase 2** | Manual Testing Scenarios | 30-60 minutes | Templates ready |
 | **Phase 3** | Baseline Data Collection | 5-10 sessions (~2-5 hours) | ✅ Complete (11 sessions) |
-| **Phase 4** | A/B Comparison | 5-10 sessions (~3-5 hours) | Ready to run |
+| **Phase 4** | A/B Comparison | 5-10 sessions (~3-5 hours) | ✅ Complete (18 sessions) |
 | **Phase 5** | Decay Parameter Calibration | 1-2 hours analysis | After 20+ sessions |
 
 ## Files
@@ -23,6 +23,7 @@ This directory contains templates and checklists for testing the Cortex Tier 0 i
 | [PHASE3-BASELINE-GUIDE.md](PHASE3-BASELINE-GUIDE.md) | Step-by-step guide for Phase 3 baseline sessions |
 | [BASELINE-DATA-RESULTS.md](BASELINE-DATA-RESULTS.md) | Phase 3 baseline results (11 sessions) |
 | [PHASE4-COMPARISON-GUIDE.md](PHASE4-COMPARISON-GUIDE.md) | Step-by-step guide for Phase 4 comparison sessions |
+| [AB-COMPARISON-RESULTS.md](AB-COMPARISON-RESULTS.md) | Phase 4 A/B comparison results (18 sessions) |
 
 ## Quick Start
 
