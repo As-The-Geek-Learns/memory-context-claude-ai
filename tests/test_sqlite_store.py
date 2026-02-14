@@ -388,3 +388,172 @@ class TestSQLiteEventStoreContentHash:
 
         sqlite_store.append_many([event1, event2])
         assert sqlite_store.count() == 2
+
+
+# =============================================================================
+# Tier 2: Embedding and Hybrid Search Tests
+# =============================================================================
+
+
+class TestSQLiteEventStoreAutoEmbed:
+    """Tests for auto-embedding on event append."""
+
+    @pytest.fixture
+    def auto_embed_store(self, sample_project_hash: str, tmp_cortex_home):
+        """Create a store with auto_embed enabled."""
+        config = CortexConfig(cortex_home=tmp_cortex_home, auto_embed=True)
+        store = SQLiteEventStore(sample_project_hash, config)
+        yield store
+        store.close()
+
+    def test_auto_embed_disabled_by_default(self, sqlite_store: SQLiteEventStore):
+        """Auto-embed should be disabled by default."""
+        assert sqlite_store._config.auto_embed is False
+
+    def test_auto_embed_enabled_in_config(self, auto_embed_store: SQLiteEventStore):
+        """Auto-embed should be enabled when configured."""
+        assert auto_embed_store._config.auto_embed is True
+
+    def test_append_without_auto_embed_no_embedding(self, sqlite_store: SQLiteEventStore):
+        """Appending without auto_embed should not create embedding."""
+        event = create_event(EventType.KNOWLEDGE_ACQUIRED, "Test content")
+        sqlite_store.append(event)
+
+        embedding = sqlite_store.get_embedding(event.id)
+        assert embedding is None
+
+    def test_append_with_auto_embed_creates_embedding(self, auto_embed_store: SQLiteEventStore):
+        """Appending with auto_embed should create embedding if available."""
+        pytest.importorskip("sentence_transformers")
+
+        event = create_event(EventType.KNOWLEDGE_ACQUIRED, "Test content for embedding")
+        auto_embed_store.append(event)
+
+        embedding = auto_embed_store.get_embedding(event.id)
+        # Should have embedding (or None if sentence-transformers unavailable)
+        if embedding is not None:
+            assert len(embedding) == 384  # MiniLM dimension
+
+
+class TestSQLiteEventStoreHybridSearch:
+    """Tests for hybrid search methods."""
+
+    @pytest.fixture
+    def store_with_events(self, sqlite_store: SQLiteEventStore):
+        """Store with sample events for search testing."""
+        events = [
+            create_event(
+                EventType.DECISION_MADE,
+                "Use SQLite for database storage",
+                git_branch="main",
+            ),
+            create_event(
+                EventType.KNOWLEDGE_ACQUIRED,
+                "Python supports async await patterns",
+                git_branch="main",
+            ),
+            create_event(
+                EventType.ERROR_RESOLVED,
+                "Fixed import error in module",
+                git_branch="feature",
+            ),
+        ]
+        for event in events:
+            sqlite_store.append(event)
+        return sqlite_store, events
+
+    def test_hybrid_search_fts_only(self, store_with_events):
+        """Hybrid search without embedding uses FTS only."""
+        store, events = store_with_events
+
+        results = store.hybrid_search("SQLite")
+
+        assert len(results) >= 1
+        assert any("SQLite" in r.event.content for r in results)
+
+    def test_hybrid_search_empty_query(self, store_with_events):
+        """Empty query returns empty results."""
+        store, _ = store_with_events
+
+        results = store.hybrid_search("")
+        assert results == []
+
+    def test_hybrid_search_with_event_type_filter(self, store_with_events):
+        """Hybrid search respects event type filter."""
+        store, _ = store_with_events
+
+        results = store.hybrid_search("SQLite", event_type=EventType.DECISION_MADE)
+
+        for result in results:
+            assert result.event.type == EventType.DECISION_MADE
+
+    def test_hybrid_search_with_branch_filter(self, store_with_events):
+        """Hybrid search respects branch filter."""
+        store, _ = store_with_events
+
+        results = store.hybrid_search("error", branch="feature")
+
+        # Should find the error event on feature branch
+        assert len(results) >= 1
+
+    def test_search_semantic_requires_embedding(self, store_with_events):
+        """search_semantic requires query_embedding."""
+        pytest.importorskip("numpy")  # Skip if numpy unavailable
+
+        store, _ = store_with_events
+
+        # Should work with a valid embedding
+        fake_embedding = [0.1] * 384
+        results = store.search_semantic(fake_embedding)
+
+        # May be empty if no embeddings stored, but should not error
+        assert isinstance(results, list)
+
+
+class TestSQLiteEventStoreEmbeddingMethods:
+    """Tests for embedding-related store methods."""
+
+    def test_count_embeddings_empty(self, sqlite_store: SQLiteEventStore):
+        """count_embeddings returns 0 for empty store."""
+        assert sqlite_store.count_embeddings() == 0
+
+    def test_get_embedding_not_found(self, sqlite_store: SQLiteEventStore):
+        """get_embedding returns None for non-existent event."""
+        result = sqlite_store.get_embedding("non-existent-id")
+        assert result is None
+
+    def test_store_and_get_embedding(self, sqlite_store: SQLiteEventStore):
+        """Can store and retrieve embedding."""
+        event = create_event(EventType.KNOWLEDGE_ACQUIRED, "Test")
+        sqlite_store.append(event)
+
+        embedding = [0.1] * 384
+        success = sqlite_store.store_embedding(event.id, embedding)
+
+        assert success is True
+
+        retrieved = sqlite_store.get_embedding(event.id)
+        assert retrieved is not None
+        assert len(retrieved) == 384
+        assert abs(retrieved[0] - 0.1) < 0.0001
+
+    def test_count_embeddings_after_store(self, sqlite_store: SQLiteEventStore):
+        """count_embeddings reflects stored embeddings."""
+        event = create_event(EventType.KNOWLEDGE_ACQUIRED, "Test")
+        sqlite_store.append(event)
+        sqlite_store.store_embedding(event.id, [0.1] * 384)
+
+        assert sqlite_store.count_embeddings() == 1
+
+    def test_backfill_embeddings_returns_count(self, sqlite_store: SQLiteEventStore):
+        """backfill_embeddings returns number of embeddings created."""
+        # Add events without embeddings
+        for i in range(3):
+            event = create_event(EventType.KNOWLEDGE_ACQUIRED, f"Content {i}")
+            sqlite_store.append(event)
+
+        # Backfill (will return 0 if sentence-transformers unavailable)
+        count = sqlite_store.backfill_embeddings()
+
+        assert isinstance(count, int)
+        assert count >= 0

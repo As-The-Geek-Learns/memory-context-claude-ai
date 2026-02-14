@@ -1,10 +1,11 @@
-"""SQLite-backed event store for Cortex Tier 1.
+"""SQLite-backed event store for Cortex Tier 1+.
 
 Provides SQLiteEventStore implementing EventStoreBase with:
 - Persistent SQLite storage via db.py
 - Content-hash deduplication
 - Salience-ranked queries with decay
 - FTS5 full-text search with BM25 ranking
+- Vector embeddings and hybrid search (Tier 2)
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from cortex.config import CortexConfig
 from cortex.db import connect, get_db_path, initialize_schema
@@ -25,6 +26,7 @@ from cortex.models import (
 from cortex.store import EventStoreBase
 
 if TYPE_CHECKING:
+    from cortex.hybrid_search import HybridResult
     from cortex.search import SearchResult
 
 
@@ -121,7 +123,11 @@ class SQLiteEventStore(EventStoreBase):
                 self._invalidate_snapshots(branch)
 
     def _insert_event(self, conn, event: Event) -> None:
-        """Insert a single event into the database."""
+        """Insert a single event into the database.
+
+        If auto_embed is enabled in config and sentence-transformers is
+        available, generates and stores the embedding for the event.
+        """
         conn.execute(
             """
             INSERT INTO events (
@@ -147,6 +153,37 @@ class SQLiteEventStore(EventStoreBase):
                 event.provenance,
             ),
         )
+
+        # WHAT: Auto-generate embedding if enabled.
+        # WHY: Allows real-time embedding without manual backfill.
+        if self._config.auto_embed:
+            self._generate_and_store_embedding(conn, event)
+
+    def _generate_and_store_embedding(self, conn, event: Event) -> bool:
+        """Generate and store embedding for a single event.
+
+        Args:
+            conn: Database connection.
+            event: Event to generate embedding for.
+
+        Returns:
+            True if embedding was stored, False otherwise.
+        """
+        from cortex.embeddings import check_sentence_transformers_available, embed
+        from cortex.vec import store_embedding
+
+        if not check_sentence_transformers_available():
+            return False
+
+        try:
+            embedding = embed(event.content)
+            if embedding is None:
+                return False
+            return store_embedding(conn, event.id, embedding)
+        except Exception:
+            # WHAT: Silently fail on embedding errors.
+            # WHY: Embedding is optional enhancement; core storage must succeed.
+            return False
 
     def _load_content_hashes(self, conn) -> set[str]:
         """Load all content hashes for deduplication."""
@@ -426,3 +463,141 @@ class SQLiteEventStore(EventStoreBase):
         from cortex.search import rebuild_fts_index
 
         return rebuild_fts_index(self._get_conn())
+
+    # --- Tier 2: Hybrid Search and Embedding Methods ---
+
+    def hybrid_search(
+        self,
+        query: str,
+        query_embedding: list[float] | None = None,
+        limit: int = 10,
+        event_type: EventType | None = None,
+        branch: str | None = None,
+        min_confidence: float = 0.0,
+    ) -> list["HybridResult"]:
+        """Combine FTS5 and vector search using Reciprocal Rank Fusion.
+
+        RRF merges ranked lists from keyword (FTS5) and semantic (vector)
+        search into a single ranking. Events found by both methods get
+        boosted scores.
+
+        Args:
+            query: Text query for FTS5 keyword search.
+            query_embedding: Optional embedding vector for similarity search.
+                If None, performs FTS5-only search.
+            limit: Maximum results to return (default 10).
+            event_type: Optional filter by event type.
+            branch: Optional filter by git branch.
+            min_confidence: Minimum confidence threshold for events.
+
+        Returns:
+            List of HybridResult objects sorted by RRF score (highest first).
+        """
+        from cortex.hybrid_search import hybrid_search
+
+        return hybrid_search(
+            self._get_conn(),
+            query,
+            query_embedding=query_embedding,
+            limit=limit,
+            event_type=event_type,
+            branch=branch,
+            min_confidence=min_confidence,
+        )
+
+    def search_semantic(
+        self,
+        query_embedding: list[float],
+        limit: int = 10,
+        event_type: EventType | None = None,
+        branch: str | None = None,
+        min_confidence: float = 0.0,
+    ) -> list["HybridResult"]:
+        """Pure vector similarity search without keyword matching.
+
+        Use this when you have a query embedding and want semantic similarity
+        without FTS5 keyword matching.
+
+        Args:
+            query_embedding: Embedding vector to search for similar events.
+            limit: Maximum results to return (default 10).
+            event_type: Optional filter by event type.
+            branch: Optional filter by git branch.
+            min_confidence: Minimum confidence threshold for events.
+
+        Returns:
+            List of HybridResult objects sorted by similarity (highest first).
+        """
+        from cortex.hybrid_search import search_semantic
+
+        return search_semantic(
+            self._get_conn(),
+            query_embedding,
+            limit=limit,
+            event_type=event_type,
+            branch=branch,
+            min_confidence=min_confidence,
+        )
+
+    def backfill_embeddings(
+        self,
+        batch_size: int = 100,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> int:
+        """Generate embeddings for all events that don't have them.
+
+        Use this to add embeddings to existing events after enabling Tier 2.
+
+        Args:
+            batch_size: Number of events to process per batch.
+            progress_callback: Optional callback(processed, total) for progress.
+
+        Returns:
+            Number of embeddings generated.
+        """
+        from cortex.vec import backfill_embeddings
+
+        return backfill_embeddings(
+            self._get_conn(),
+            batch_size=batch_size,
+            progress_callback=progress_callback,
+        )
+
+    def count_embeddings(self) -> int:
+        """Return the number of events with embeddings.
+
+        Returns:
+            Count of events that have embedding vectors stored.
+        """
+        from cortex.vec import count_embeddings
+
+        return count_embeddings(self._get_conn())
+
+    def get_embedding(self, event_id: str) -> list[float] | None:
+        """Get the embedding vector for a specific event.
+
+        Args:
+            event_id: ID of the event.
+
+        Returns:
+            Embedding vector as list of floats, or None if not found.
+        """
+        from cortex.vec import get_embedding
+
+        return get_embedding(self._get_conn(), event_id)
+
+    def store_embedding(self, event_id: str, embedding: list[float]) -> bool:
+        """Store an embedding vector for a specific event.
+
+        Args:
+            event_id: ID of the event.
+            embedding: Embedding vector to store.
+
+        Returns:
+            True if stored successfully, False otherwise.
+        """
+        from cortex.vec import store_embedding
+
+        result = store_embedding(self._get_conn(), event_id, embedding)
+        self._get_conn().commit()
+        return result

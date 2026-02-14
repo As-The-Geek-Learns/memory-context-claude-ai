@@ -65,6 +65,9 @@ class CortexConfig:
     # Snapshot caching (Tier 1+ only)
     snapshot_ttl_hours: float = 1.0
 
+    # Embedding options (Tier 2)
+    auto_embed: bool = False  # Generate embeddings on event append
+
     def to_dict(self) -> dict:
         """Serialize to a JSON-compatible dictionary."""
         data = asdict(self)
@@ -87,6 +90,7 @@ class CortexConfig:
             decision_aging_sessions=data.get("decision_aging_sessions", defaults.decision_aging_sessions),
             storage_tier=data.get("storage_tier", defaults.storage_tier),
             snapshot_ttl_hours=data.get("snapshot_ttl_hours", defaults.snapshot_ttl_hours),
+            auto_embed=data.get("auto_embed", defaults.auto_embed),
         )
 
 
