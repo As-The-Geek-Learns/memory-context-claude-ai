@@ -115,8 +115,10 @@ class TestEmbeddingEngineInit:
         engine = EmbeddingEngine(device="cuda")
         assert engine._device == "cuda"
 
-    def test_default_device_is_cpu(self):
+    def test_default_device_is_cpu(self, monkeypatch):
         """Default device should be CPU for reliability."""
+        # Ensure no env override affects this test
+        monkeypatch.delenv("CORTEX_EMBEDDING_DEVICE", raising=False)
         engine = EmbeddingEngine()
         assert engine._device == "cpu"
 
@@ -159,12 +161,6 @@ class TestEmbeddingEngineEmbed:
     def test_embed_whitespace_only_returns_none(self, embedding_engine):
         """embed should return None for whitespace-only string."""
         result = embedding_engine.embed("   \n\t  ")
-        assert result is None
-
-    def test_embed_none_input_returns_none(self, embedding_engine):
-        """embed should handle None input gracefully."""
-        # This would actually raise TypeError, but we want to test the check
-        result = embedding_engine.embed("")
         assert result is None
 
     def test_embed_when_model_unavailable(self):
