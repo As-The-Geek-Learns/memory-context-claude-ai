@@ -2,9 +2,15 @@
 # Cortex Runtime Dependencies
 # =============================================================================
 # These are the packages needed to run cortex.
-# Currently cortex uses only Python standard library (no external deps).
 #
 # For development dependencies, see requirements-dev.txt
 # =============================================================================
 
-# No runtime dependencies - cortex uses only Python stdlib
+# -----------------------------------------------------------------------------
+# Tier 2: Vector Embeddings (optional - graceful degradation if not installed)
+# -----------------------------------------------------------------------------
+# sentence-transformers requires torch, which is large (~2GB with CUDA)
+# For CPU-only (recommended for most users): pip install sentence-transformers
+# The model itself is ~90MB and downloads on first use.
+sentence-transformers>=3.1.0
+numpy>=1.24.0

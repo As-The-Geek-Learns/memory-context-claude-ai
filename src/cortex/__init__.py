@@ -25,6 +25,7 @@ Public API:
     - SearchResult, search, search_by_type: FTS5 full-text search
     - Snapshot, save_snapshot, get_valid_snapshot: Briefing snapshot caching
     - MigrationResult, upgrade, detect_tier, get_migration_status, rollback: Tier migration
+    - EmbeddingEngine, embed, embed_batch: Vector embedding generation (Tier 2)
 """
 
 __version__ = "0.1.0"
@@ -32,6 +33,14 @@ __version__ = "0.1.0"
 from cortex.briefing import generate_briefing, write_briefing_to_file
 from cortex.cli import cmd_init, cmd_reset, cmd_status, get_init_hook_json
 from cortex.config import CortexConfig, load_config, save_config
+from cortex.embeddings import (
+    EMBEDDING_DIMENSION,
+    EmbeddingEngine,
+    check_sentence_transformers_available,
+    embed,
+    embed_batch,
+    get_embedding_engine,
+)
 from cortex.extractors import (
     extract_events,
     extract_explicit,
@@ -88,6 +97,8 @@ from cortex.transcript import (
 
 __all__ = [
     "CortexConfig",
+    "EMBEDDING_DIMENSION",
+    "EmbeddingEngine",
     "Event",
     "EventStore",
     "EventStoreBase",
@@ -97,9 +108,13 @@ __all__ = [
     "SQLiteEventStore",
     "SearchResult",
     "Snapshot",
+    "check_sentence_transformers_available",
     "cleanup_expired_snapshots",
     "create_event_store",
     "detect_tier",
+    "embed",
+    "embed_batch",
+    "get_embedding_engine",
     "get_migration_status",
     "rollback",
     "upgrade",
