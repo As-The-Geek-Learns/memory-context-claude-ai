@@ -247,7 +247,7 @@ def _record_schema_version(conn: sqlite3.Connection) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         "INSERT INTO schema_version (version, applied_at, description) VALUES (?, ?, ?)",
-        (SCHEMA_VERSION, now, "Initial Tier 1 schema: events, FTS5, snapshots, hook_state"),
+        (SCHEMA_VERSION, now, "Tier 2 schema: events, FTS5, snapshots, hook_state, embedding"),
     )
 
 
@@ -295,16 +295,23 @@ def check_vec_available() -> bool:
     Returns:
         True if sqlite-vec is available, False otherwise.
     """
+    conn = None
     try:
         import sqlite_vec
 
         conn = sqlite3.connect(":memory:")
         conn.enable_load_extension(True)
         sqlite_vec.load(conn)
-        conn.close()
         return True
     except (ImportError, sqlite3.OperationalError, AttributeError):
         return False
+    finally:
+        if conn is not None:
+            try:
+                conn.enable_load_extension(False)
+            except (sqlite3.OperationalError, AttributeError):
+                pass
+            conn.close()
 
 
 def load_vec_extension(conn: sqlite3.Connection) -> bool:
@@ -324,6 +331,11 @@ def load_vec_extension(conn: sqlite3.Connection) -> bool:
         return True
     except (ImportError, sqlite3.OperationalError, AttributeError):
         return False
+    finally:
+        try:
+            conn.enable_load_extension(False)
+        except (sqlite3.OperationalError, AttributeError):
+            pass
 
 
 def vacuum_database(conn: sqlite3.Connection) -> None:

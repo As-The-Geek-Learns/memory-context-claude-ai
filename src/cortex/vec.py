@@ -163,9 +163,9 @@ def _search_similar_vec(
 
     where_sql = " AND ".join(where_clauses)
 
-    # Use vec_distance_L2 for Euclidean distance
+    # Use vec_distance_L2 for Euclidean distance with vec_f32 for portability
     query = f"""
-        SELECT id, vec_distance_L2(embedding, ?) as distance
+        SELECT id, vec_distance_L2(vec_f32(embedding), vec_f32(?)) as distance
         FROM events
         WHERE {where_sql}
         ORDER BY distance ASC
@@ -348,10 +348,18 @@ def backfill_embeddings(
 
         embeddings = engine.embed_batch(contents)
 
+        # Track progress this batch to detect no-progress loops
+        generated_this_batch = 0
         for event_id, embedding in zip(ids, embeddings, strict=True):
             if embedding is not None:
-                store_embedding(conn, event_id, embedding)
-                generated += 1
+                if store_embedding(conn, event_id, embedding):
+                    generated += 1
+                    generated_this_batch += 1
+
+        # Guard against infinite loop if no embeddings are being stored
+        if generated_this_batch == 0:
+            logger.warning("No embeddings stored in batch, stopping backfill to prevent infinite loop")
+            break
 
         if progress_callback:
             progress_callback(generated, total)

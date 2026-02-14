@@ -172,7 +172,7 @@ class TestInitializeSchema:
         conn.close()
 
         assert row["version"] == SCHEMA_VERSION
-        assert "Tier 1" in row["description"]
+        assert "Tier 2" in row["description"]
 
     def test_idempotent(self, sample_project_hash: str, sample_config: CortexConfig):
         """Calling initialize_schema multiple times should be safe."""
