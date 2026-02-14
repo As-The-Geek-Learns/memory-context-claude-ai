@@ -112,6 +112,7 @@ class TestInitializeSchema:
             "access_count",
             "immortal",
             "provenance",
+            "embedding",  # Tier 2: vector embeddings
         }
         assert columns == expected
 
