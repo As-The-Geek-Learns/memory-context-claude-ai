@@ -14,7 +14,7 @@ edited. On merge conflict, regenerate from the event store (files are derived).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -50,11 +50,7 @@ class ProjectionStats:
     decisions_count: int = 0
     archived_count: int = 0
     plan_steps: int = 0
-    files_written: list[str] | None = None
-
-    def __post_init__(self) -> None:
-        if self.files_written is None:
-            self.files_written = []
+    files_written: list[str] = field(default_factory=list)
 
 
 def get_projections_dir(project_root: str) -> Path:

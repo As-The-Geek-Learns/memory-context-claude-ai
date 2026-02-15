@@ -248,7 +248,7 @@ class CortexMCPServer:
                 ctx.store._conn,  # type: ignore[attr-defined]
                 query,
                 limit=limit,
-                git_branch=branch,
+                branch=branch,
             )
             if not results:
                 return f"No results found for '{query}'"
@@ -265,22 +265,22 @@ class CortexMCPServer:
         elif ctx.storage_tier >= 1:
             from cortex.search import search
 
-            results = search(
+            fts_results = search(
                 ctx.store._conn,  # type: ignore[attr-defined]
                 query,
                 limit=limit,
-                git_branch=branch,
+                branch=branch,
             )
-            if not results:
+            if not fts_results:
                 return f"No results found for '{query}'"
 
             lines = [f"## Search Results for '{query}'\n"]
-            for i, r in enumerate(results, 1):
-                event = r.event
+            for i, fts_result in enumerate(fts_results, 1):
+                event = fts_result.event
                 lines.append(f"### {i}. {event.type.value}")
-                lines.append(f"**Score:** {r.score:.3f} | **Branch:** {event.git_branch or 'unknown'}")
-                if r.snippet:
-                    lines.append(f"**Snippet:** ...{r.snippet}...")
+                lines.append(f"**Score:** {fts_result.score:.3f} | **Branch:** {event.git_branch or 'unknown'}")
+                if fts_result.snippet:
+                    lines.append(f"**Snippet:** ...{fts_result.snippet}...")
                 lines.append(f"\n{event.content}\n")
             return "\n".join(lines)
 
