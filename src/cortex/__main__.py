@@ -65,7 +65,8 @@ def main() -> None:
         hook_name = "user-prompt-submit"
 
     if hook_name == "stop":
-        code = handle_stop(read_payload())
+        regenerate_projections = "--regenerate-projections" in sys.argv
+        code = handle_stop(read_payload(), regenerate_projections=regenerate_projections)
     elif hook_name == "precompact":
         code = handle_precompact(read_payload())
     elif hook_name == "session-start":

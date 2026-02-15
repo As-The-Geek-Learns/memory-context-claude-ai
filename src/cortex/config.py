@@ -68,6 +68,10 @@ class CortexConfig:
     # Embedding options (Tier 2)
     auto_embed: bool = False  # Generate embeddings on event append
 
+    # Tier 3 options
+    mcp_enabled: bool = False  # MCP server enabled
+    projections_enabled: bool = False  # Git-tracked projections enabled
+
     def to_dict(self) -> dict:
         """Serialize to a JSON-compatible dictionary."""
         data = asdict(self)
@@ -91,6 +95,8 @@ class CortexConfig:
             storage_tier=data.get("storage_tier", defaults.storage_tier),
             snapshot_ttl_hours=data.get("snapshot_ttl_hours", defaults.snapshot_ttl_hours),
             auto_embed=data.get("auto_embed", defaults.auto_embed),
+            mcp_enabled=data.get("mcp_enabled", defaults.mcp_enabled),
+            projections_enabled=data.get("projections_enabled", defaults.projections_enabled),
         )
 
 

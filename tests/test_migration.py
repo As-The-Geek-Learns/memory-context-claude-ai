@@ -366,10 +366,15 @@ class TestUpgrade:
         assert result2.to_tier == 2
         assert result2.embeddings_generated == 3
 
-        # Third upgrade should fail (already at max tier)
+        # Third upgrade to Tier 3 (MCP + projections)
         result3 = upgrade(project_hash, config)
-        assert result3.success is False
-        assert "Already on Tier 2" in result3.error
+        assert result3.success is True
+        assert result3.to_tier == 3
+
+        # Fourth upgrade should fail (already at max tier)
+        result4 = upgrade(project_hash, config)
+        assert result4.success is False
+        assert "Already on Tier 3" in result4.error
 
 
 class TestRollback:

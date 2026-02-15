@@ -76,9 +76,9 @@ def cmd_status(cwd: str | None = None) -> int:
 
         print(f"project: {identity['path']}")
         print(f"hash: {project_hash}")
-        print(
-            f"storage_tier: {migration_status['current_tier']} ({'SQLite' if migration_status['current_tier'] == 1 else 'JSON'})"
-        )
+        tier_names = {0: "JSON", 1: "SQLite", 2: "SQLite + Embeddings", 3: "MCP + Projections"}
+        tier_name = tier_names.get(migration_status["current_tier"], "Unknown")
+        print(f"storage_tier: {migration_status['current_tier']} ({tier_name})")
         print(f"events: {count}")
         print(f"last_extraction: {last_extraction}")
 
@@ -97,13 +97,21 @@ def cmd_status(cwd: str | None = None) -> int:
             print(f"fts5_available: {'yes' if check_fts5_available() else 'no'}")
 
         # Show Tier 2 status (embedding count, auto_embed)
-        if config.storage_tier >= 2:
+        if migration_status["current_tier"] >= 2:
             from cortex.sqlite_store import SQLiteEventStore
 
             if isinstance(store, SQLiteEventStore):
                 embedding_count = store.count_embeddings()
                 print(f"embeddings: {embedding_count}/{count}")
                 print(f"auto_embed: {'yes' if config.auto_embed else 'no'}")
+
+        # Show Tier 3 status (MCP, projections)
+        if migration_status["current_tier"] >= 3 or config.mcp_enabled or config.projections_enabled:
+            from cortex.mcp.server import check_mcp_available
+
+            print(f"mcp_enabled: {'yes' if config.mcp_enabled else 'no'}")
+            print(f"mcp_available: {'yes' if check_mcp_available() else 'no'}")
+            print(f"projections_enabled: {'yes' if config.projections_enabled else 'no'}")
 
         # Show upgrade hint if on Tier 0
         if migration_status["can_upgrade"]:
@@ -142,7 +150,7 @@ def cmd_upgrade(cwd: str | None = None, dry_run: bool = False, force: bool = Fal
 
         # Show pre-upgrade status
         status = get_migration_status(project_hash, config)
-        tier_names = {-1: "None", 0: "JSON", 1: "SQLite", 2: "SQLite + Embeddings"}
+        tier_names = {-1: "None", 0: "JSON", 1: "SQLite", 2: "SQLite + Embeddings", 3: "MCP + Projections"}
         print(f"project: {identity['path']}")
         print(f"current_tier: {status['current_tier']} ({tier_names.get(status['current_tier'], 'Unknown')})")
         print(f"events: {status['events_count']}")
@@ -175,6 +183,10 @@ def cmd_upgrade(cwd: str | None = None, dry_run: bool = False, force: bool = Fal
                 events_needing_embeddings = status["events_count"] - status.get("embedding_count", 0)
                 print(f"  - Generate embeddings for {events_needing_embeddings} events")
                 print("  - (After upgrade, run 'cortex init' to enable anticipatory retrieval)")
+            elif status["current_tier"] == 2:
+                print("  - Enable MCP server for mid-session memory queries")
+                print("  - Enable git-tracked projections (.cortex/decisions.md, etc.)")
+                print("  - (After upgrade, run 'cortex init' to configure MCP server)")
             return 0
 
         # Progress callback for Tier 2 embedding generation
@@ -193,6 +205,9 @@ def cmd_upgrade(cwd: str | None = None, dry_run: bool = False, force: bool = Fal
                     print(f"  backup: {result.backup_path}")
             elif result.from_tier == 1:
                 print(f"  embeddings_generated: {result.embeddings_generated}")
+            elif result.from_tier == 2:
+                print("  mcp_enabled: yes")
+                print("  projections_enabled: yes")
             print(f"\nRun 'cortex init' to update your Claude Code hooks for Tier {result.to_tier}.")
             return 0
         else:
@@ -204,7 +219,7 @@ def cmd_upgrade(cwd: str | None = None, dry_run: bool = False, force: bool = Fal
         return 1
 
 
-def get_init_hook_json(include_tier2: bool = False) -> str:
+def get_init_hook_json(include_tier2: bool = False, include_tier3: bool = False) -> str:
     """Return the hook configuration JSON for Claude Code settings.
 
     Format matches Claude Code expectations: hooks key with Stop, PreCompact,
@@ -214,9 +229,18 @@ def get_init_hook_json(include_tier2: bool = False) -> str:
     Args:
         include_tier2: If True, include UserPromptSubmit hook for anticipatory
                        retrieval (requires Tier 2+).
+        include_tier3: If True, include Stop hook for projection regeneration
+                       (requires Tier 3).
     """
+    # Base command for Stop hook
+    stop_command = "cortex stop"
+
+    # Tier 3: regenerate projections on Stop
+    if include_tier3:
+        stop_command = "cortex stop --regenerate-projections"
+
     hooks: dict = {
-        "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "cortex stop"}]}],
+        "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": stop_command}]}],
         "PreCompact": [{"matcher": "", "hooks": [{"type": "command", "command": "cortex precompact"}]}],
         "SessionStart": [{"matcher": "", "hooks": [{"type": "command", "command": "cortex session-start"}]}],
     }
@@ -233,12 +257,18 @@ def cmd_init() -> int:
     """Print hook configuration JSON to stdout for copy-paste into Claude Code settings.
 
     If current project is Tier 2+, includes UserPromptSubmit hook for anticipatory retrieval.
+    If Tier 3, includes projection regeneration and MCP server instructions.
     """
     config = load_config()
-    include_tier2 = config.storage_tier >= 2
-    print(get_init_hook_json(include_tier2=include_tier2))
+    include_tier2 = config.storage_tier >= 2 or config.auto_embed
+    include_tier3 = config.storage_tier >= 3 or config.projections_enabled
+    print(get_init_hook_json(include_tier2=include_tier2, include_tier3=include_tier3))
 
-    if include_tier2:
+    if include_tier3:
+        print("\n# Tier 3 detected: Projections regenerated on Stop", file=sys.stderr)
+        print("# To enable MCP server, add to Claude Code settings:", file=sys.stderr)
+        print("#   mcpServers: { cortex: { command: 'cortex', args: ['mcp-server'] } }", file=sys.stderr)
+    elif include_tier2:
         print("\n# Tier 2+ detected: UserPromptSubmit hook included for anticipatory retrieval", file=sys.stderr)
     else:
         print("\n# Tip: Upgrade to Tier 2 and re-run 'cortex init' for anticipatory retrieval", file=sys.stderr)
