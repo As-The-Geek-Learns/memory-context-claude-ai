@@ -174,7 +174,7 @@ def cmd_upgrade(cwd: str | None = None, dry_run: bool = False, force: bool = Fal
             elif status["current_tier"] == 1:
                 events_needing_embeddings = status["events_count"] - status.get("embedding_count", 0)
                 print(f"  - Generate embeddings for {events_needing_embeddings} events")
-                print("  - Enable anticipatory retrieval")
+                print("  - (After upgrade, run 'cortex init' to enable anticipatory retrieval)")
             return 0
 
         # Progress callback for Tier 2 embedding generation

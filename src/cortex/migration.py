@@ -505,8 +505,8 @@ def upgrade(
             to_tier=0,
         )
 
-    # Handle Tier 2 (already at max)
-    if status["current_tier"] == 2 and not force:
+    # Handle Tier 2 (already at max) — always short-circuit to prevent data loss
+    if status["current_tier"] == 2:
         return MigrationResult(
             success=False,
             events_migrated=0,
