@@ -30,6 +30,7 @@ Public API:
     - VectorSearchResult, search_similar, backfill_embeddings: Vector search (Tier 2)
     - HybridResult, hybrid_search, search_semantic: Hybrid FTS + vector search (Tier 2)
     - RetrievalResult, retrieve_relevant_context: Anticipatory retrieval (Tier 2+)
+    - CortexMCPServer, run_server, check_mcp_available: MCP server (Tier 3)
 """
 
 __version__ = "0.1.0"
@@ -119,6 +120,15 @@ from cortex.vec import (
     store_embedding,
 )
 
+
+# MCP imports (lazy to avoid ImportError when mcp not installed)
+def _import_mcp():
+    """Lazy import for MCP server (requires mcp package)."""
+    from cortex.mcp import CortexMCPServer, check_mcp_available, run_server
+
+    return CortexMCPServer, check_mcp_available, run_server
+
+
 __all__ = [
     "CortexConfig",
     "DEFAULT_RRF_K",
@@ -196,4 +206,22 @@ __all__ = [
     "search_semantic",
     "search_similar",
     "write_relevant_context_to_file",
+    # MCP (Tier 3) - use _import_mcp() for lazy loading
+    "CortexMCPServer",
+    "check_mcp_available",
+    "run_server",
 ]
+
+
+# Lazy loading for MCP to avoid ImportError when mcp package not installed
+def __getattr__(name: str):
+    """Lazy load MCP exports."""
+    if name in ("CortexMCPServer", "check_mcp_available", "run_server"):
+        CortexMCPServer, check_mcp_available, run_server = _import_mcp()
+        if name == "CortexMCPServer":
+            return CortexMCPServer
+        elif name == "check_mcp_available":
+            return check_mcp_available
+        elif name == "run_server":
+            return run_server
+    raise AttributeError(f"module 'cortex' has no attribute '{name}'")

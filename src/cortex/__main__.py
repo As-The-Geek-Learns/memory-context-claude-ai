@@ -11,6 +11,7 @@ Usage:
     cortex upgrade             # migrate from Tier 0 (JSON) to Tier 1 (SQLite)
     cortex upgrade --dry-run   # show what would be done without making changes
     cortex upgrade --force     # overwrite existing SQLite database
+    cortex mcp-server          # start MCP server (Tier 3, stdio transport)
 
     python -m cortex stop      # same
 """
@@ -26,7 +27,7 @@ from cortex.hooks import (
     read_payload,
 )
 
-USAGE = "Usage: cortex <stop|precompact|session-start|user-prompt-submit|reset|status|init|upgrade>\n"
+USAGE = "Usage: cortex <stop|precompact|session-start|user-prompt-submit|reset|status|init|upgrade|mcp-server>\n"
 
 
 def main() -> None:
@@ -51,6 +52,10 @@ def main() -> None:
         dry_run = "--dry-run" in sys.argv or "-n" in sys.argv
         force = "--force" in sys.argv or "-f" in sys.argv
         sys.exit(cmd_upgrade(dry_run=dry_run, force=force))
+    if arg == "mcp-server":
+        from cortex.mcp import run_server
+
+        sys.exit(run_server())
 
     # Hook commands: require payload on stdin
     hook_name = arg
