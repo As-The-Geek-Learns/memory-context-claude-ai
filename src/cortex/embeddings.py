@@ -131,7 +131,9 @@ class EmbeddingEngine:
         if self._model is not None:
             try:
                 # SentenceTransformer stores dimension in get_sentence_embedding_dimension()
-                return self._model.get_sentence_embedding_dimension()
+                dim = self._model.get_sentence_embedding_dimension()
+                if dim is not None:
+                    return dim
             except (AttributeError, TypeError):
                 pass
         return EMBEDDING_DIMENSION

@@ -41,13 +41,17 @@ def read_payload() -> dict:
         return {}
 
 
-def handle_stop(payload: dict) -> int:
+def handle_stop(payload: dict, regenerate_projections: bool = False) -> int:
     """Handle Stop hook: incremental transcript extraction and event storage.
 
     If stop_hook_active is true, returns 0 immediately to avoid recursion.
     Resolves project from cwd, loads HookState, reads new transcript lines
     since last_transcript_position, extracts events, appends to store,
     updates state. On any exception logs to stderr and returns 0.
+
+    Args:
+        payload: JSON payload from Claude Code.
+        regenerate_projections: If True, regenerate git-tracked projections (Tier 3).
     """
     try:
         if payload.get("stop_hook_active"):
@@ -89,6 +93,9 @@ def handle_stop(payload: dict) -> int:
                 last_session_id=session_id,
                 last_extraction_time=datetime.now(timezone.utc).isoformat(),
             )
+            # Still regenerate projections even if no new entries
+            if regenerate_projections:
+                _regenerate_projections(store, cwd, git_branch)
             return 0
 
         events = extract_events(
@@ -107,10 +114,31 @@ def handle_stop(payload: dict) -> int:
             session_count=state_data.get("session_count", 0) + 1,
             last_extraction_time=datetime.now(timezone.utc).isoformat(),
         )
+
+        # Regenerate projections if enabled (Tier 3)
+        if regenerate_projections:
+            _regenerate_projections(store, cwd, git_branch)
+
         return 0
     except Exception as e:
         print(f"[Cortex] Stop hook error: {e}", file=sys.stderr)
         return 0
+
+
+def _regenerate_projections(store, cwd: str, git_branch: str | None) -> None:
+    """Regenerate git-tracked projections (.cortex/ directory).
+
+    Called by handle_stop when --regenerate-projections is set.
+    Writes decisions.md, decisions-archive.md, and active-plan.md.
+    """
+    try:
+        from cortex.projections import regenerate_all
+
+        stats = regenerate_all(store, cwd, branch=git_branch)
+        if stats.files_written:
+            print(f"[Cortex] Regenerated projections: {len(stats.files_written)} files", file=sys.stderr)
+    except Exception as e:
+        print(f"[Cortex] Projection regeneration error: {e}", file=sys.stderr)
 
 
 def handle_precompact(payload: dict) -> int:

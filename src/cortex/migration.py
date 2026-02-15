@@ -62,13 +62,14 @@ def detect_tier(project_hash: str, config: CortexConfig) -> int:
     - 0: JSON storage exists (events.json)
     - 1: SQLite storage exists (events.db), no embeddings
     - 2: SQLite storage exists with embeddings populated
+    - 3: Tier 2 + MCP/projections enabled
 
     Args:
         project_hash: Project identifier hash.
         config: Cortex configuration.
 
     Returns:
-        Detected tier (-1 to 2).
+        Detected tier (-1 to 3).
     """
     cortex_home = Path(config.cortex_home).expanduser()
     project_dir = cortex_home / "projects" / project_hash
@@ -77,7 +78,7 @@ def detect_tier(project_hash: str, config: CortexConfig) -> int:
     events_db = project_dir / "events.db"
 
     if events_db.exists():
-        # Check if embeddings are populated → Tier 2
+        # Check if embeddings are populated → Tier 2+
         try:
             store = SQLiteEventStore(project_hash, config)
             embedding_count = store.count_embeddings()
@@ -87,6 +88,9 @@ def detect_tier(project_hash: str, config: CortexConfig) -> int:
             # WHAT: Consider Tier 2 if config says so OR embeddings exist.
             # WHY: Config-based detection allows manual tier setting.
             if config.storage_tier >= 2 or (embedding_count > 0 and embedding_count >= total_count * 0.5):
+                # Check for Tier 3 (MCP/projections enabled)
+                if config.mcp_enabled or config.projections_enabled:
+                    return 3
                 return 2
         except Exception:
             pass  # Fall through to Tier 1
@@ -133,8 +137,8 @@ def get_migration_status(project_hash: str, config: CortexConfig) -> dict:
         result["details"] = "No storage found — project not initialized"
         return result
 
-    if current_tier == 2:
-        result["details"] = "Already on Tier 2 (SQLite + Embeddings)"
+    if current_tier == 3:
+        result["details"] = "Already on Tier 3 (MCP + Projections)"
         try:
             store = SQLiteEventStore(project_hash, config)
             result["events_count"] = store.count()
@@ -142,6 +146,39 @@ def get_migration_status(project_hash: str, config: CortexConfig) -> dict:
             store.close()
         except Exception:
             pass
+        result["mcp_enabled"] = config.mcp_enabled
+        result["projections_enabled"] = config.projections_enabled
+        return result
+
+    if current_tier == 2:
+        # Tier 2 — check for Tier 3 upgrade
+        try:
+            store = SQLiteEventStore(project_hash, config)
+            result["events_count"] = store.count()
+            result["embedding_count"] = store.count_embeddings()
+            store.close()
+        except Exception:
+            pass
+
+        # Can always upgrade to Tier 3 (just config change)
+        from cortex.mcp.server import check_mcp_available
+
+        mcp_available = check_mcp_available()
+        result["mcp_available"] = mcp_available
+        result["mcp_enabled"] = config.mcp_enabled
+        result["projections_enabled"] = config.projections_enabled
+
+        if not config.mcp_enabled and not config.projections_enabled:
+            result["can_upgrade"] = True
+            result["target_tier"] = 3
+            if mcp_available:
+                result["details"] = "Ready to upgrade to Tier 3: enables MCP server and git-tracked projections"
+            else:
+                result["details"] = (
+                    "Ready to upgrade to Tier 3: enables git-tracked projections (MCP requires: pip install 'cortex[tier3]')"
+                )
+        else:
+            result["details"] = "Already on Tier 3 features — MCP and/or projections enabled"
         return result
 
     if current_tier == 1:
@@ -451,6 +488,60 @@ def upgrade_to_tier2(
         )
 
 
+def upgrade_to_tier3(
+    project_hash: str,
+    config: CortexConfig,
+) -> MigrationResult:
+    """Upgrade a project from Tier 2 to Tier 3 (MCP + Projections).
+
+    Enables MCP server and git-tracked projections via config flags.
+    No data migration required — just config updates.
+
+    Args:
+        project_hash: Project identifier hash.
+        config: Cortex configuration.
+
+    Returns:
+        MigrationResult with details of the operation.
+    """
+    from cortex.config import save_config
+    from cortex.mcp.server import check_mcp_available
+
+    try:
+        # Update config to enable Tier 3 features
+        config.mcp_enabled = check_mcp_available()  # Only enable if package installed
+        config.projections_enabled = True
+        config.storage_tier = 3
+
+        # Save the updated config
+        save_config(config)
+
+        return MigrationResult(
+            success=True,
+            events_migrated=0,
+            hook_state_migrated=False,
+            embeddings_generated=0,
+            backup_path=None,
+            error=None,
+            dry_run=False,
+            from_tier=2,
+            to_tier=3,
+        )
+
+    except Exception as e:
+        return MigrationResult(
+            success=False,
+            events_migrated=0,
+            hook_state_migrated=False,
+            embeddings_generated=0,
+            backup_path=None,
+            error=str(e),
+            dry_run=False,
+            from_tier=2,
+            to_tier=3,
+        )
+
+
 def upgrade(
     project_hash: str,
     config: CortexConfig | None = None,
@@ -505,19 +596,51 @@ def upgrade(
             to_tier=0,
         )
 
-    # Handle Tier 2 (already at max) — always short-circuit to prevent data loss
-    if status["current_tier"] == 2:
+    # Handle Tier 3 (already at max) — always short-circuit to prevent data loss
+    if status["current_tier"] == 3:
         return MigrationResult(
             success=False,
             events_migrated=0,
             hook_state_migrated=False,
             embeddings_generated=0,
             backup_path=None,
-            error="Already on Tier 2 (SQLite + Embeddings)",
+            error="Already on Tier 3 (MCP + Projections)",
             dry_run=dry_run,
-            from_tier=2,
-            to_tier=2,
+            from_tier=3,
+            to_tier=3,
         )
+
+    # Handle Tier 2 → Tier 3 upgrade
+    if status["current_tier"] == 2:
+        if not status["can_upgrade"] and not force:
+            return MigrationResult(
+                success=False,
+                events_migrated=0,
+                hook_state_migrated=False,
+                embeddings_generated=0,
+                backup_path=None,
+                error=status["details"],
+                dry_run=dry_run,
+                from_tier=2,
+                to_tier=3,
+            )
+
+        # Dry run for Tier 2→3
+        if dry_run:
+            return MigrationResult(
+                success=True,
+                events_migrated=0,
+                hook_state_migrated=False,
+                embeddings_generated=0,
+                backup_path=None,
+                error=None,
+                dry_run=True,
+                from_tier=2,
+                to_tier=3,
+            )
+
+        # Perform Tier 2→3 upgrade (just enable features via config)
+        return upgrade_to_tier3(project_hash, config)
 
     # Handle Tier 1 → Tier 2 upgrade
     if status["current_tier"] == 1:

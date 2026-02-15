@@ -30,6 +30,8 @@ Public API:
     - VectorSearchResult, search_similar, backfill_embeddings: Vector search (Tier 2)
     - HybridResult, hybrid_search, search_semantic: Hybrid FTS + vector search (Tier 2)
     - RetrievalResult, retrieve_relevant_context: Anticipatory retrieval (Tier 2+)
+    - CortexMCPServer, run_server, check_mcp_available: MCP server (Tier 3)
+    - ProjectionStats, regenerate_all, generate_decisions_md: Git-tracked projections (Tier 3)
 """
 
 __version__ = "0.1.0"
@@ -78,6 +80,15 @@ from cortex.migration import (
 )
 from cortex.models import Event, EventType, create_event
 from cortex.project import get_project_hash, identify_project
+from cortex.projections import (
+    ProjectionStats,
+    generate_archive_md,
+    generate_decisions_md,
+    generate_plan_md,
+    get_projections_dir,
+    regenerate_all,
+    should_regenerate,
+)
 from cortex.search import (
     SearchResult,
     get_similar_events,
@@ -118,6 +129,15 @@ from cortex.vec import (
     search_similar,
     store_embedding,
 )
+
+
+# MCP imports (lazy to avoid ImportError when mcp not installed)
+def _import_mcp():
+    """Lazy import for MCP server (requires mcp package)."""
+    from cortex.mcp import CortexMCPServer, check_mcp_available, run_server
+
+    return CortexMCPServer, check_mcp_available, run_server
+
 
 __all__ = [
     "CortexConfig",
@@ -196,4 +216,30 @@ __all__ = [
     "search_semantic",
     "search_similar",
     "write_relevant_context_to_file",
+    # Projections (Tier 3)
+    "ProjectionStats",
+    "generate_archive_md",
+    "generate_decisions_md",
+    "generate_plan_md",
+    "get_projections_dir",
+    "regenerate_all",
+    "should_regenerate",
+    # MCP (Tier 3) - use _import_mcp() for lazy loading
+    "CortexMCPServer",
+    "check_mcp_available",
+    "run_server",
 ]
+
+
+# Lazy loading for MCP to avoid ImportError when mcp package not installed
+def __getattr__(name: str):
+    """Lazy load MCP exports."""
+    if name in ("CortexMCPServer", "check_mcp_available", "run_server"):
+        CortexMCPServer, check_mcp_available, run_server = _import_mcp()
+        if name == "CortexMCPServer":
+            return CortexMCPServer
+        elif name == "check_mcp_available":
+            return check_mcp_available
+        elif name == "run_server":
+            return run_server
+    raise AttributeError(f"module 'cortex' has no attribute '{name}'")
