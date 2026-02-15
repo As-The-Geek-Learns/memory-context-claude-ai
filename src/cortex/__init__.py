@@ -31,6 +31,7 @@ Public API:
     - HybridResult, hybrid_search, search_semantic: Hybrid FTS + vector search (Tier 2)
     - RetrievalResult, retrieve_relevant_context: Anticipatory retrieval (Tier 2+)
     - CortexMCPServer, run_server, check_mcp_available: MCP server (Tier 3)
+    - ProjectionStats, regenerate_all, generate_decisions_md: Git-tracked projections (Tier 3)
 """
 
 __version__ = "0.1.0"
@@ -79,6 +80,15 @@ from cortex.migration import (
 )
 from cortex.models import Event, EventType, create_event
 from cortex.project import get_project_hash, identify_project
+from cortex.projections import (
+    ProjectionStats,
+    generate_archive_md,
+    generate_decisions_md,
+    generate_plan_md,
+    get_projections_dir,
+    regenerate_all,
+    should_regenerate,
+)
 from cortex.search import (
     SearchResult,
     get_similar_events,
@@ -206,6 +216,14 @@ __all__ = [
     "search_semantic",
     "search_similar",
     "write_relevant_context_to_file",
+    # Projections (Tier 3)
+    "ProjectionStats",
+    "generate_archive_md",
+    "generate_decisions_md",
+    "generate_plan_md",
+    "get_projections_dir",
+    "regenerate_all",
+    "should_regenerate",
     # MCP (Tier 3) - use _import_mcp() for lazy loading
     "CortexMCPServer",
     "check_mcp_available",
