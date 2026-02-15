@@ -1,4 +1,4 @@
-"""Tests for Tier 0 → Tier 1 migration functionality."""
+"""Tests for storage tier migration functionality (Tier 0 → 1 → 2)."""
 
 import json
 from pathlib import Path
@@ -18,6 +18,7 @@ from cortex.migration import (
     migrate_hook_state_to_sqlite,
     rollback,
     upgrade,
+    upgrade_to_tier2,
 )
 from cortex.models import EventType, create_event
 from cortex.sqlite_store import SQLiteEventStore
@@ -319,17 +320,26 @@ class TestUpgrade:
         assert (project_dir / "events.json").exists()
         assert not (project_dir / "events.db").exists()
 
-    def test_upgrade_already_tier1(self, tier0_project: tuple[str, CortexConfig]):
-        """upgrade should fail if already on Tier 1."""
+    def test_upgrade_already_tier1_no_tier2(self, tier0_project: tuple[str, CortexConfig], monkeypatch):
+        """upgrade should fail if already on Tier 1 and Tier 2 not available."""
         project_hash, config = tier0_project
 
         # First upgrade
         upgrade(project_hash, config)
 
-        # Second upgrade should fail
+        # Mock sentence-transformers as unavailable for Tier 2 upgrade
+        # Must patch in cortex.embeddings where the function is defined
+        monkeypatch.setattr(
+            "cortex.embeddings.check_sentence_transformers_available",
+            lambda: False,
+        )
+
+        # Second upgrade should fail (Tier 2 not available)
         result = upgrade(project_hash, config)
         assert result.success is False
-        assert "Already on Tier 1" in result.error
+        # Error message should mention sentence-transformers requirement
+        assert result.error is not None
+        assert "sentence-transformers" in result.error.lower()
 
     def test_upgrade_no_storage(self, empty_project: tuple[str, CortexConfig]):
         """upgrade should fail if no storage exists."""
@@ -339,25 +349,27 @@ class TestUpgrade:
         assert result.success is False
         assert "not initialized" in result.error
 
-    def test_upgrade_force_overwrites(self, tier0_project: tuple[str, CortexConfig]):
-        """upgrade with force should overwrite existing SQLite."""
+    def test_upgrade_already_at_tier2(self, tier0_project: tuple[str, CortexConfig]):
+        """upgrade should fail if already at maximum tier (Tier 2)."""
+        pytest.importorskip("sentence_transformers")
+
         project_hash, config = tier0_project
 
-        # Create existing SQLite with different content
-        sqlite_config = CortexConfig(cortex_home=config.cortex_home, storage_tier=1)
-        store = SQLiteEventStore(project_hash, sqlite_config)
-        store.append(create_event(EventType.DECISION_MADE, "Old content"))
-        store.close()
+        # First upgrade to Tier 1
+        result1 = upgrade(project_hash, config)
+        assert result1.success is True
+        assert result1.to_tier == 1
 
-        # Force upgrade should overwrite
-        result = upgrade(project_hash, config, force=True)
-        assert result.success is True
-        assert result.events_migrated == 3
+        # Second upgrade to Tier 2
+        result2 = upgrade(project_hash, config)
+        assert result2.success is True
+        assert result2.to_tier == 2
+        assert result2.embeddings_generated == 3
 
-        # Verify new content
-        store = SQLiteEventStore(project_hash, sqlite_config)
-        assert store.count() == 3  # From Tier 0, not 1 old event
-        store.close()
+        # Third upgrade should fail (already at max tier)
+        result3 = upgrade(project_hash, config)
+        assert result3.success is False
+        assert "Already on Tier 2" in result3.error
 
 
 class TestRollback:
@@ -411,13 +423,19 @@ class TestMigrationResult:
             success=True,
             events_migrated=100,
             hook_state_migrated=True,
+            embeddings_generated=0,
             backup_path=Path("/tmp/backup"),
             error=None,
             dry_run=False,
+            from_tier=0,
+            to_tier=1,
         )
         assert result.success is True
         assert result.events_migrated == 100
         assert result.hook_state_migrated is True
+        assert result.embeddings_generated == 0
+        assert result.from_tier == 0
+        assert result.to_tier == 1
 
     def test_failure_result(self):
         """MigrationResult should store failure fields."""
@@ -425,12 +443,33 @@ class TestMigrationResult:
             success=False,
             events_migrated=0,
             hook_state_migrated=False,
+            embeddings_generated=0,
             backup_path=None,
             error="Something went wrong",
             dry_run=False,
+            from_tier=0,
+            to_tier=1,
         )
         assert result.success is False
         assert result.error == "Something went wrong"
+
+    def test_tier2_result(self):
+        """MigrationResult should store Tier 2 upgrade fields."""
+        result = MigrationResult(
+            success=True,
+            events_migrated=0,
+            hook_state_migrated=False,
+            embeddings_generated=50,
+            backup_path=None,
+            error=None,
+            dry_run=False,
+            from_tier=1,
+            to_tier=2,
+        )
+        assert result.success is True
+        assert result.embeddings_generated == 50
+        assert result.from_tier == 1
+        assert result.to_tier == 2
 
 
 class TestCLIUpgrade:
@@ -441,3 +480,165 @@ class TestCLIUpgrade:
         from cortex.cli import cmd_upgrade
 
         assert callable(cmd_upgrade)
+
+
+# --- Tier 2 Migration Tests ---
+
+
+@pytest.fixture
+def tier1_project(sample_project_hash: str, sample_config: CortexConfig) -> tuple[str, CortexConfig]:
+    """Create a Tier 1 project with events in SQLite.
+
+    Returns tuple of (project_hash, config).
+    """
+    sqlite_config = CortexConfig(cortex_home=sample_config.cortex_home, storage_tier=1)
+
+    # Create events in SQLite store
+    store = SQLiteEventStore(sample_project_hash, sqlite_config)
+    events = [
+        create_event(EventType.DECISION_MADE, "Use SQLite for storage"),
+        create_event(EventType.KNOWLEDGE_ACQUIRED, "WAL mode is fast"),
+        create_event(EventType.FILE_MODIFIED, "Updated config.py"),
+    ]
+    for event in events:
+        store.append(event)
+    store.close()
+
+    return sample_project_hash, sqlite_config
+
+
+class TestDetectTier2:
+    """Tests for detect_tier with Tier 2."""
+
+    def test_detect_tier_2_with_embeddings(self, tier1_project: tuple[str, CortexConfig], monkeypatch):
+        """detect_tier should return 2 when embeddings are populated."""
+        project_hash, config = tier1_project
+
+        # Mock config with storage_tier=2
+        tier2_config = CortexConfig(
+            cortex_home=config.cortex_home,
+            storage_tier=2,
+        )
+
+        # Should detect Tier 2 based on config
+        tier = detect_tier(project_hash, tier2_config)
+        assert tier == 2
+
+    def test_detect_tier_1_without_embeddings(self, tier1_project: tuple[str, CortexConfig]):
+        """detect_tier should return 1 when no embeddings exist."""
+        project_hash, config = tier1_project
+
+        tier = detect_tier(project_hash, config)
+        assert tier == 1
+
+
+class TestGetMigrationStatusTier2:
+    """Tests for get_migration_status with Tier 2."""
+
+    def test_status_tier1_can_upgrade_to_tier2(self, tier1_project: tuple[str, CortexConfig], monkeypatch):
+        """get_migration_status should show ready for Tier 2 upgrade."""
+        project_hash, config = tier1_project
+
+        # Mock sentence-transformers as available
+        monkeypatch.setattr(
+            "cortex.embeddings.check_sentence_transformers_available",
+            lambda: True,
+        )
+
+        status = get_migration_status(project_hash, config)
+
+        assert status["current_tier"] == 1
+        assert status["can_upgrade"] is True
+        assert status["target_tier"] == 2
+        assert status["sentence_transformers_available"] is True
+        assert "Tier 2" in status["details"]
+
+    def test_status_tier1_no_upgrade_without_sentence_transformers(
+        self, tier1_project: tuple[str, CortexConfig], monkeypatch
+    ):
+        """get_migration_status should not allow upgrade without sentence-transformers."""
+        project_hash, config = tier1_project
+
+        # Mock sentence-transformers as unavailable
+        monkeypatch.setattr(
+            "cortex.embeddings.check_sentence_transformers_available",
+            lambda: False,
+        )
+
+        status = get_migration_status(project_hash, config)
+
+        assert status["current_tier"] == 1
+        assert status["can_upgrade"] is False
+        assert status["sentence_transformers_available"] is False
+        assert "sentence-transformers" in status["details"]
+
+
+class TestUpgradeTier2:
+    """Tests for upgrade_to_tier2 function."""
+
+    def test_upgrade_to_tier2_success(self, tier1_project: tuple[str, CortexConfig]):
+        """upgrade_to_tier2 should generate embeddings for all events."""
+        pytest.importorskip("sentence_transformers")
+
+        project_hash, config = tier1_project
+        result = upgrade_to_tier2(project_hash, config)
+
+        assert result.success is True
+        assert result.embeddings_generated == 3
+        assert result.from_tier == 1
+        assert result.to_tier == 2
+
+        # Verify embeddings exist
+        store = SQLiteEventStore(project_hash, config)
+        assert store.count_embeddings() == 3
+        store.close()
+
+    def test_upgrade_to_tier2_no_sentence_transformers(self, tier1_project: tuple[str, CortexConfig], monkeypatch):
+        """upgrade_to_tier2 should fail without sentence-transformers."""
+        project_hash, config = tier1_project
+
+        # Mock sentence-transformers as unavailable
+        monkeypatch.setattr(
+            "cortex.embeddings.check_sentence_transformers_available",
+            lambda: False,
+        )
+
+        result = upgrade_to_tier2(project_hash, config)
+
+        assert result.success is False
+        assert "sentence-transformers" in result.error
+
+    def test_upgrade_via_main_function(self, tier1_project: tuple[str, CortexConfig]):
+        """upgrade() should route Tier 1→2 to upgrade_to_tier2."""
+        pytest.importorskip("sentence_transformers")
+
+        project_hash, config = tier1_project
+        result = upgrade(project_hash, config)
+
+        assert result.success is True
+        assert result.from_tier == 1
+        assert result.to_tier == 2
+        assert result.embeddings_generated == 3
+
+    def test_upgrade_tier2_dry_run(self, tier1_project: tuple[str, CortexConfig], monkeypatch):
+        """upgrade dry_run should report what would be done for Tier 2."""
+        project_hash, config = tier1_project
+
+        # Mock sentence-transformers as available
+        monkeypatch.setattr(
+            "cortex.embeddings.check_sentence_transformers_available",
+            lambda: True,
+        )
+
+        result = upgrade(project_hash, config, dry_run=True)
+
+        assert result.success is True
+        assert result.dry_run is True
+        assert result.embeddings_generated == 3
+        assert result.from_tier == 1
+        assert result.to_tier == 2
+
+        # Verify no embeddings actually created
+        store = SQLiteEventStore(project_hash, config)
+        assert store.count_embeddings() == 0
+        store.close()

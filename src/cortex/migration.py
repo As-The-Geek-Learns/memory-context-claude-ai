@@ -1,13 +1,17 @@
 """Migration utilities for upgrading Cortex storage tiers.
 
-Provides the upgrade command to migrate from Tier 0 (JSON) to Tier 1 (SQLite)
-with backup, batch processing, and rollback capabilities.
+Provides the upgrade command to migrate between tiers:
+- Tier 0 (JSON) → Tier 1 (SQLite + FTS5)
+- Tier 1 (SQLite) → Tier 2 (SQLite + Embeddings)
+
+Includes backup, batch processing, and rollback capabilities.
 """
 
 from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,30 +33,42 @@ class MigrationResult:
 
     Attributes:
         success: Whether the migration completed successfully.
-        events_migrated: Number of events migrated.
-        hook_state_migrated: Whether HookState was migrated.
+        events_migrated: Number of events migrated (Tier 0→1).
+        hook_state_migrated: Whether HookState was migrated (Tier 0→1).
+        embeddings_generated: Number of embeddings backfilled (Tier 1→2).
         backup_path: Path to the backup directory.
         error: Error message if migration failed.
         dry_run: Whether this was a dry run (no changes made).
+        from_tier: Source tier of migration.
+        to_tier: Target tier of migration.
     """
 
     success: bool
     events_migrated: int
     hook_state_migrated: bool
+    embeddings_generated: int
     backup_path: Path | None
     error: str | None
     dry_run: bool
+    from_tier: int = 0
+    to_tier: int = 1
 
 
 def detect_tier(project_hash: str, config: CortexConfig) -> int:
     """Detect the current storage tier for a project.
+
+    Detection logic:
+    - -1: No storage found
+    - 0: JSON storage exists (events.json)
+    - 1: SQLite storage exists (events.db), no embeddings
+    - 2: SQLite storage exists with embeddings populated
 
     Args:
         project_hash: Project identifier hash.
         config: Cortex configuration.
 
     Returns:
-        0 if JSON storage exists, 1 if SQLite exists, -1 if no storage found.
+        Detected tier (-1 to 2).
     """
     cortex_home = Path(config.cortex_home).expanduser()
     project_dir = cortex_home / "projects" / project_hash
@@ -61,6 +77,19 @@ def detect_tier(project_hash: str, config: CortexConfig) -> int:
     events_db = project_dir / "events.db"
 
     if events_db.exists():
+        # Check if embeddings are populated → Tier 2
+        try:
+            store = SQLiteEventStore(project_hash, config)
+            embedding_count = store.count_embeddings()
+            total_count = store.count()
+            store.close()
+
+            # WHAT: Consider Tier 2 if config says so OR embeddings exist.
+            # WHY: Config-based detection allows manual tier setting.
+            if config.storage_tier >= 2 or (embedding_count > 0 and embedding_count >= total_count * 0.5):
+                return 2
+        except Exception:
+            pass  # Fall through to Tier 1
         return 1
     if events_json.exists():
         return 0
@@ -75,8 +104,10 @@ def get_migration_status(project_hash: str, config: CortexConfig) -> dict:
         config: Cortex configuration.
 
     Returns:
-        Dict with current_tier, can_upgrade, events_count, and details.
+        Dict with current_tier, can_upgrade, events_count, embedding info, and details.
     """
+    from cortex.embeddings import check_sentence_transformers_available
+
     cortex_home = Path(config.cortex_home).expanduser()
     project_dir = cortex_home / "projects" / project_hash
 
@@ -90,8 +121,11 @@ def get_migration_status(project_hash: str, config: CortexConfig) -> dict:
         "current_tier": current_tier,
         "config_tier": config.storage_tier,
         "can_upgrade": False,
+        "target_tier": current_tier,  # Default: no upgrade available
         "events_count": 0,
         "has_hook_state": False,
+        "embedding_count": 0,
+        "sentence_transformers_available": check_sentence_transformers_available(),
         "details": "",
     }
 
@@ -99,19 +133,47 @@ def get_migration_status(project_hash: str, config: CortexConfig) -> dict:
         result["details"] = "No storage found — project not initialized"
         return result
 
-    if current_tier == 1:
-        result["details"] = "Already on Tier 1 (SQLite)"
-        # Count events in SQLite
+    if current_tier == 2:
+        result["details"] = "Already on Tier 2 (SQLite + Embeddings)"
         try:
             store = SQLiteEventStore(project_hash, config)
             result["events_count"] = store.count()
+            result["embedding_count"] = store.count_embeddings()
             store.close()
         except Exception:
             pass
         return result
 
-    # Tier 0 — can upgrade
+    if current_tier == 1:
+        # Tier 1 — check for Tier 2 upgrade
+        events_count = 0
+        embedding_count = 0
+        try:
+            store = SQLiteEventStore(project_hash, config)
+            events_count = store.count()
+            embedding_count = store.count_embeddings()
+            result["events_count"] = events_count
+            result["embedding_count"] = embedding_count
+            store.close()
+        except Exception:
+            pass
+
+        # Can upgrade to Tier 2 if sentence-transformers is available
+        if result["sentence_transformers_available"]:
+            events_without_embeddings = events_count - embedding_count
+            if events_without_embeddings > 0:
+                result["can_upgrade"] = True
+                result["target_tier"] = 2
+                result["details"] = f"Ready to upgrade to Tier 2: {events_without_embeddings} events need embeddings"
+            else:
+                result["details"] = "All events have embeddings — use 'cortex init' to enable Tier 2 hooks"
+        else:
+            result["details"] = "Tier 2 upgrade requires sentence-transformers: pip install sentence-transformers"
+        return result
+
+    # Tier 0 — can upgrade to Tier 1
     result["can_upgrade"] = True
+    result["target_tier"] = 1
 
     # Count events in JSON
     if events_json.exists():
@@ -129,7 +191,7 @@ def get_migration_status(project_hash: str, config: CortexConfig) -> dict:
         result["details"] = "Both JSON and SQLite exist — use --force to overwrite"
         result["can_upgrade"] = False
     else:
-        result["details"] = f"Ready to upgrade: {result['events_count']} events"
+        result["details"] = f"Ready to upgrade to Tier 1: {result['events_count']} events"
 
     return result
 
@@ -297,28 +359,129 @@ def archive_tier0_files(project_hash: str, config: CortexConfig) -> None:
         shutil.move(str(state_json), str(archive_dir / "state.json"))
 
 
+def upgrade_to_tier2(
+    project_hash: str,
+    config: CortexConfig,
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> MigrationResult:
+    """Upgrade a project from Tier 1 (SQLite) to Tier 2 (SQLite + Embeddings).
+
+    Backfills embeddings for all events using SentenceTransformers.
+
+    Args:
+        project_hash: Project identifier hash.
+        config: Cortex configuration.
+        progress_callback: Optional callback(done, total) for progress.
+
+    Returns:
+        MigrationResult with details of the operation.
+    """
+    from cortex.db import connect, initialize_schema
+    from cortex.embeddings import check_sentence_transformers_available
+    from cortex.vec import backfill_embeddings
+
+    # Check prerequisites
+    if not check_sentence_transformers_available():
+        return MigrationResult(
+            success=False,
+            events_migrated=0,
+            hook_state_migrated=False,
+            embeddings_generated=0,
+            backup_path=None,
+            error="sentence-transformers not installed. Install with: pip install sentence-transformers",
+            dry_run=False,
+            from_tier=1,
+            to_tier=2,
+        )
+
+    try:
+        # Get event count
+        store = SQLiteEventStore(project_hash, config)
+        total_events = store.count()
+        store.close()
+
+        if total_events == 0:
+            return MigrationResult(
+                success=True,
+                events_migrated=0,
+                hook_state_migrated=False,
+                embeddings_generated=0,
+                backup_path=None,
+                error=None,
+                dry_run=False,
+                from_tier=1,
+                to_tier=2,
+            )
+
+        # Backfill embeddings
+        conn = connect(project_hash, config)
+        initialize_schema(conn)
+
+        embeddings_generated = backfill_embeddings(
+            conn,
+            batch_size=32,
+            progress_callback=progress_callback,
+        )
+
+        conn.close()
+
+        return MigrationResult(
+            success=True,
+            events_migrated=0,
+            hook_state_migrated=False,
+            embeddings_generated=embeddings_generated,
+            backup_path=None,
+            error=None,
+            dry_run=False,
+            from_tier=1,
+            to_tier=2,
+        )
+
+    except Exception as e:
+        return MigrationResult(
+            success=False,
+            events_migrated=0,
+            hook_state_migrated=False,
+            embeddings_generated=0,
+            backup_path=None,
+            error=str(e),
+            dry_run=False,
+            from_tier=1,
+            to_tier=2,
+        )
+
+
 def upgrade(
     project_hash: str,
     config: CortexConfig | None = None,
     dry_run: bool = False,
     force: bool = False,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> MigrationResult:
-    """Upgrade a project from Tier 0 (JSON) to Tier 1 (SQLite).
+    """Upgrade a project to the next storage tier.
 
-    Migration steps:
+    Supports:
+    - Tier 0 (JSON) → Tier 1 (SQLite + FTS5)
+    - Tier 1 (SQLite) → Tier 2 (SQLite + Embeddings)
+
+    Migration steps (Tier 0→1):
     1. Detect current tier and validate upgrade is possible
     2. Create backup of existing files
     3. Load events from JSON
     4. Create SQLite database and migrate events in batches
     5. Migrate HookState if present
-    6. Update config to storage_tier=1
-    7. Archive original JSON files
+    6. Archive original JSON files
+
+    Migration steps (Tier 1→2):
+    1. Check sentence-transformers is available
+    2. Backfill embeddings for all events
 
     Args:
         project_hash: Project identifier hash.
         config: Cortex configuration (loaded from project if None).
         dry_run: If True, report what would be done without making changes.
-        force: If True, overwrite existing SQLite database.
+        force: If True, force upgrade even if already at target tier.
+        progress_callback: Optional callback(done, total) for Tier 2 embedding progress.
 
     Returns:
         MigrationResult with details of the operation.
@@ -334,40 +497,87 @@ def upgrade(
             success=False,
             events_migrated=0,
             hook_state_migrated=False,
+            embeddings_generated=0,
             backup_path=None,
             error="No storage found — project not initialized",
             dry_run=dry_run,
+            from_tier=-1,
+            to_tier=0,
         )
 
-    if status["current_tier"] == 1 and not force:
+    # Handle Tier 2 (already at max)
+    if status["current_tier"] == 2 and not force:
         return MigrationResult(
             success=False,
             events_migrated=0,
             hook_state_migrated=False,
+            embeddings_generated=0,
             backup_path=None,
-            error="Already on Tier 1 (SQLite)",
+            error="Already on Tier 2 (SQLite + Embeddings)",
             dry_run=dry_run,
+            from_tier=2,
+            to_tier=2,
         )
 
+    # Handle Tier 1 → Tier 2 upgrade
+    if status["current_tier"] == 1:
+        if not status["can_upgrade"] and not force:
+            return MigrationResult(
+                success=False,
+                events_migrated=0,
+                hook_state_migrated=False,
+                embeddings_generated=0,
+                backup_path=None,
+                error=status["details"],
+                dry_run=dry_run,
+                from_tier=1,
+                to_tier=2,
+            )
+
+        # Dry run for Tier 1→2
+        if dry_run:
+            events_needing_embeddings = status["events_count"] - status["embedding_count"]
+            return MigrationResult(
+                success=True,
+                events_migrated=0,
+                hook_state_migrated=False,
+                embeddings_generated=events_needing_embeddings,
+                backup_path=None,
+                error=None,
+                dry_run=True,
+                from_tier=1,
+                to_tier=2,
+            )
+
+        # Perform Tier 1→2 upgrade
+        return upgrade_to_tier2(project_hash, config, progress_callback)
+
+    # Handle Tier 0 → Tier 1 upgrade
     if not status["can_upgrade"] and not force:
         return MigrationResult(
             success=False,
             events_migrated=0,
             hook_state_migrated=False,
+            embeddings_generated=0,
             backup_path=None,
             error=status["details"],
             dry_run=dry_run,
+            from_tier=0,
+            to_tier=1,
         )
 
-    # Dry run — report what would happen
+    # Dry run for Tier 0→1
     if dry_run:
         return MigrationResult(
             success=True,
             events_migrated=status["events_count"],
             hook_state_migrated=status["has_hook_state"],
+            embeddings_generated=0,
             backup_path=None,
             error=None,
             dry_run=True,
+            from_tier=0,
+            to_tier=1,
         )
 
     try:
@@ -408,9 +618,12 @@ def upgrade(
             success=True,
             events_migrated=events_migrated,
             hook_state_migrated=hook_state_migrated,
+            embeddings_generated=0,
             backup_path=backup_path,
             error=None,
             dry_run=False,
+            from_tier=0,
+            to_tier=1,
         )
 
     except Exception as e:
@@ -418,9 +631,12 @@ def upgrade(
             success=False,
             events_migrated=0,
             hook_state_migrated=False,
+            embeddings_generated=0,
             backup_path=None,
             error=str(e),
             dry_run=dry_run,
+            from_tier=0,
+            to_tier=1,
         )
 
 

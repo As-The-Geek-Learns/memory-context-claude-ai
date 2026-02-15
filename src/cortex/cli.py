@@ -116,12 +116,16 @@ def cmd_status(cwd: str | None = None) -> int:
 
 
 def cmd_upgrade(cwd: str | None = None, dry_run: bool = False, force: bool = False) -> int:
-    """Upgrade project from Tier 0 (JSON) to Tier 1 (SQLite).
+    """Upgrade project to the next storage tier.
+
+    Supports:
+    - Tier 0 (JSON) → Tier 1 (SQLite + FTS5)
+    - Tier 1 (SQLite) → Tier 2 (SQLite + Embeddings)
 
     Args:
         cwd: Working directory (uses os.getcwd() if None).
         dry_run: If True, report what would be done without making changes.
-        force: If True, overwrite existing SQLite database.
+        force: If True, force upgrade even if at target tier.
 
     Returns:
         0 on success, 1 on error.
@@ -138,38 +142,61 @@ def cmd_upgrade(cwd: str | None = None, dry_run: bool = False, force: bool = Fal
 
         # Show pre-upgrade status
         status = get_migration_status(project_hash, config)
+        tier_names = {-1: "None", 0: "JSON", 1: "SQLite", 2: "SQLite + Embeddings"}
         print(f"project: {identity['path']}")
-        print(f"current_tier: {status['current_tier']} ({'SQLite' if status['current_tier'] == 1 else 'JSON'})")
+        print(f"current_tier: {status['current_tier']} ({tier_names.get(status['current_tier'], 'Unknown')})")
         print(f"events: {status['events_count']}")
-        print(f"hook_state: {'yes' if status['has_hook_state'] else 'no'}")
+
+        # Show tier-specific info
+        if status["current_tier"] == 0:
+            print(f"hook_state: {'yes' if status['has_hook_state'] else 'no'}")
+        if status["current_tier"] >= 1:
+            print(f"embeddings: {status.get('embedding_count', 0)}/{status['events_count']}")
+            print(
+                f"sentence_transformers: {'available' if status.get('sentence_transformers_available') else 'not installed'}"
+            )
 
         if not status["can_upgrade"] and not force:
             print(f"\n{status['details']}")
             return 1
 
+        target_tier = status.get("target_tier", status["current_tier"] + 1)
+
         # Run migration
         if dry_run:
-            print("\n[DRY RUN] Would perform the following:")
-            print("  - Backup existing files")
-            print(f"  - Migrate {status['events_count']} events to SQLite")
-            if status["has_hook_state"]:
-                print("  - Migrate hook state")
-            print("  - Update config to storage_tier=1")
-            print("  - Archive JSON files")
+            print(f"\n[DRY RUN] Would upgrade to Tier {target_tier} ({tier_names.get(target_tier, 'Unknown')}):")
+            if status["current_tier"] == 0:
+                print("  - Backup existing files")
+                print(f"  - Migrate {status['events_count']} events to SQLite")
+                if status["has_hook_state"]:
+                    print("  - Migrate hook state")
+                print("  - Archive JSON files")
+            elif status["current_tier"] == 1:
+                events_needing_embeddings = status["events_count"] - status.get("embedding_count", 0)
+                print(f"  - Generate embeddings for {events_needing_embeddings} events")
+                print("  - Enable anticipatory retrieval")
             return 0
 
-        print("\nMigrating to Tier 1 (SQLite)...")
-        result = upgrade(project_hash, config, dry_run=False, force=force)
+        # Progress callback for Tier 2 embedding generation
+        def progress_callback(done: int, total: int) -> None:
+            print(f"  Generating embeddings: {done}/{total}", end="\r")
+
+        print(f"\nUpgrading to Tier {target_tier} ({tier_names.get(target_tier, 'Unknown')})...")
+        result = upgrade(project_hash, config, dry_run=False, force=force, progress_callback=progress_callback)
 
         if result.success:
-            print("\nMigration complete!")
-            print(f"  events_migrated: {result.events_migrated}")
-            print(f"  hook_state_migrated: {'yes' if result.hook_state_migrated else 'no'}")
-            if result.backup_path:
-                print(f"  backup: {result.backup_path}")
+            print("\nUpgrade complete!")
+            if result.from_tier == 0:
+                print(f"  events_migrated: {result.events_migrated}")
+                print(f"  hook_state_migrated: {'yes' if result.hook_state_migrated else 'no'}")
+                if result.backup_path:
+                    print(f"  backup: {result.backup_path}")
+            elif result.from_tier == 1:
+                print(f"  embeddings_generated: {result.embeddings_generated}")
+            print(f"\nRun 'cortex init' to update your Claude Code hooks for Tier {result.to_tier}.")
             return 0
         else:
-            print(f"\nMigration failed: {result.error}", file=sys.stderr)
+            print(f"\nUpgrade failed: {result.error}", file=sys.stderr)
             return 1
 
     except Exception as e:
