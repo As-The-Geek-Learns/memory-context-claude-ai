@@ -39,7 +39,7 @@ Cortex is an **event-sourced memory system** with three key subsystems:
 | **Tier 0** | 30 seconds | JSON storage, three-layer extraction, basic briefing | Implemented |
 | **Tier 1** | 2 minutes | SQLite + FTS5, snapshot caching, migration CLI | Implemented |
 | **Tier 2** | 5 minutes | Vector embeddings, hybrid search, anticipatory retrieval | Implemented |
-| **Tier 3** | 10 minutes | MCP server, branch alignment, git-tracked projections | Planned |
+| **Tier 3** | 10 minutes | MCP server, branch alignment, git-tracked projections | Implemented |
 
 ## Research Methodology
 
@@ -170,6 +170,67 @@ cortex upgrade --dry-run # Preview embedding generation count
 
 Migration backfills embeddings for all existing events with a progress indicator.
 
+## Tier 3 Features
+
+Tier 3 adds mid-session memory queries and git-tracked projections:
+
+### MCP Server
+
+Cortex exposes memory through Claude's Model Context Protocol, enabling mid-session queries:
+
+**Tools:**
+| Tool | Description |
+|------|-------------|
+| `cortex_search` | Hybrid search (FTS5 + vector on Tier 2+) |
+| `cortex_search_decisions` | Query immortal decisions and rejections |
+| `cortex_get_plan` | Active plan with completed steps |
+| `cortex_get_recent` | Recent events by salience |
+| `cortex_get_status` | Project info, tier, event counts |
+
+**Resources:**
+| Resource | Description |
+|----------|-------------|
+| `cortex://status` | Project metadata JSON |
+| `cortex://decisions` | All immortal decisions (markdown) |
+| `cortex://plan` | Active plan (markdown) |
+
+Start the MCP server:
+```bash
+cortex mcp-server  # stdio transport for Claude Code
+```
+
+### Git-Tracked Projections
+
+Auto-generated markdown files in `.cortex/` for PR context:
+
+```
+.cortex/
+├── decisions.md          # Active decisions with reasoning
+├── decisions-archive.md  # Archived/aged decisions
+└── active-plan.md        # Current work plan
+```
+
+- **Regenerated** on session end via Stop hook
+- **Git-friendly** — commit to share context with teammates
+- **Merge strategy** — regenerate from event store on conflict
+
+### Branch Alignment
+
+Context isolation per git branch:
+
+- All MCP tools accept `branch` parameter
+- Default to current branch from git
+- Cross-branch queries require explicit opt-in
+- Briefings filter by branch automatically
+
+### Migration CLI (Tier 2 → Tier 3)
+
+```bash
+cortex upgrade           # Enable MCP + projections
+cortex upgrade --dry-run # Preview what would be enabled
+cortex init              # Print updated hooks with MCP config
+```
+
 ## Key Design Decisions
 
 1. **Event sourcing as foundation** — Separates capture from delivery; audit trail is permanent
@@ -182,16 +243,18 @@ Migration backfills embeddings for all existing events with a progress indicator
 
 ## Project Status
 
-**Research: COMPLETE** | **Tier 0: COMPLETE** | **Tier 1: COMPLETE** | **Tier 2: COMPLETE**
+**Research: COMPLETE** | **Tier 0-3: COMPLETE**
 
-- **670 tests** passing with full coverage of core functionality
+- **713 tests** passing with full coverage of core functionality
 - **A/B comparison testing** completed (see [results](docs/testing/AB-COMPARISON-RESULTS.md))
 - Cold start time reduced by **84%** (9.0 min → 1.4 min)
 - Decision regression reduced by **80%** (0.5 → 0.1 per session)
 - Hybrid search improves relevance over FTS5-only
 - Sub-100ms anticipatory retrieval latency
+- Full MCP protocol compliance for mid-session queries
+- Sub-second projection generation
 
-Next step: Tier 3 implementation (MCP server, branch alignment).
+All tiers implemented. See [releases](https://github.com/As-The-Geek-Learns/cortex/releases) for version history.
 
 ## Development Setup
 
@@ -237,36 +300,54 @@ Cortex provides three hook handlers that Claude Code invokes with JSON payloads 
 
 | Hook | Command |
 |------|---------|
-| **Stop** | `cortex stop` (or `python -m cortex stop`) |
-| **PreCompact** | `cortex precompact` (or `python -m cortex precompact`) |
-| **SessionStart** | `cortex session-start` (or `python -m cortex session-start`) |
-| **UserPromptSubmit** | `cortex prompt-submit` (Tier 2 — anticipatory retrieval) |
+| **Stop** | `cortex stop` (Tier 3: add `--regenerate-projections`) |
+| **PreCompact** | `cortex precompact` |
+| **SessionStart** | `cortex session-start` |
+| **UserPromptSubmit** | `cortex user-prompt-submit` (Tier 2+ — anticipatory retrieval) |
 
 Ensure the `cortex` entry point is on your PATH (e.g. `pip install -e .` in this repo). Claude Code sends a JSON object on stdin with fields such as `session_id`, `cwd`, and (for Stop) `transcript_path` and `stop_hook_active`. Cortex expects the payload schema described in the [research paper](docs/research/paper/cortex-research-paper.md) (Appendix E and §9.8). Briefings are written to `.claude/rules/cortex-briefing.md` in the project directory and are loaded automatically at session start.
 
-**First-time setup:** Install the package (`pip install -e .` or `pip install cortex`), then run `cortex init` and add the printed JSON to your Claude Code hooks configuration (see [Claude Code hooks documentation](https://code.claude.com/docs/en/hooks-guide)). For Layer 3 extraction, copy `templates/cortex-memory-instructions.md` to your project’s `.claude/rules/` so Claude knows to use `[MEMORY: ...]` for important facts.
+**First-time setup:** Install the package (`pip install -e .` or `pip install cortex`), then run `cortex init` and add the printed JSON to your Claude Code hooks configuration (see [Claude Code hooks documentation](https://code.claude.com/docs/en/hooks-guide)). For Layer 3 extraction, copy `templates/cortex-memory-instructions.md` to your project's `.claude/rules/` so Claude knows to use `[MEMORY: ...]` for important facts.
+
+**MCP Server setup (Tier 3):** Add to your Claude Code settings:
+```json
+{
+  "mcpServers": {
+    "cortex": {
+      "command": "cortex",
+      "args": ["mcp-server"]
+    }
+  }
+}
+```
+
+This enables mid-session queries like "search my decisions about authentication" or "what's my current plan?"
 
 **CLI commands:**
 
 | Command | Description |
 |---------|-------------|
-| `cortex status` | Show project hash, event count, storage tier, embedding count |
+| `cortex status` | Show project hash, event count, storage tier, MCP/projection status |
 | `cortex reset` | Clear all Cortex memory for the current project |
-| `cortex upgrade` | Migrate to next tier (Tier 0→1: SQLite, Tier 1→2: embeddings) |
+| `cortex upgrade` | Migrate to next tier (0→1: SQLite, 1→2: embeddings, 2→3: MCP) |
 | `cortex upgrade --dry-run` | Preview migration without making changes |
 | `cortex init` | Print hook configuration JSON for Claude Code settings |
+| `cortex mcp-server` | Start MCP server (Tier 3, stdio transport) |
 
-Example `cortex status` output (Tier 2):
+Example `cortex status` output (Tier 3):
 ```
 project: /Users/dev/my-project
 hash: a1b2c3d4e5f6
-storage_tier: 2 (SQLite + Embeddings)
+storage_tier: 3 (MCP + Projections)
 events: 42
-embeddings: 42
+embeddings: 42/42
 last_extraction: 2026-02-14T21:00:00Z
 db_size: 1.2 MB
 fts5_available: yes
-sentence_transformers: yes
+auto_embed: yes
+mcp_enabled: yes
+mcp_available: yes
+projections_enabled: yes
 ```
 
 For hook configuration details, see the [Claude Code hooks documentation](https://code.claude.com/docs/en/hooks-guide).
